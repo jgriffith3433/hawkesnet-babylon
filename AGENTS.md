@@ -1,0 +1,14 @@
+# hawkesnet-babylon — agent guide
+
+`@hawkesgen/net-babylon` (public, MIT, since 2026-10-26): multiplayer for Babylon.js scenes on Hawkes Net, a thin layer
+over `@hawkesgen/net` (the hawkesnet repo's `sdk/js`). One file, `hawkes-net-babylon.mjs`, and its types `hawkes-net-babylon.d.ts`.
+
+- **Babylon is passed in** (`babylon: BABYLON`), never imported: games use `@babylonjs/core` ES modules or the global
+  build. Keep it that way (and `@babylonjs/core` an optional peer).
+- **Everything rides the SDK:** rooms are its `lobby()`, playback its `Track` on the room's clock, shared things its
+  `room.sync` (`mine`, `claim`, `push`, `onThing`). A feature the SDK lacks goes into the SDK (hawkesnet), not here.
+- Options given as `undefined` are dropped before they reach the SDK (they would override its defaults).
+- `npm test`: two scenes on NullEngine against a Hawkes Net started in the test from a hawkesnet checkout (`HAWKESNET`,
+  default `../hawkesnet`); install with `npm install --no-save ../hawkesnet/sdk/js` until `@hawkesgen/net` is on npm.
+- `example/` runs with no install (`node tools/serve.mjs`), on the live service's free test rooms.
+- Release: bump `version` (and `VERSION` in the module), tag `v<version>`, `npm publish --access public`.

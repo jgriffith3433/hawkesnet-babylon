@@ -1,0 +1,35 @@
+{
+  "name": "@hawkesgen/net-babylon",
+  "version": "0.1.0",
+  "description": "Multiplayer for Babylon.js scenes on Hawkes Net (https://net.hawkesgen.com): shared rooms, avatars played back smoothly, shared moving things, away players. A few lines on top of @hawkesgen/net.",
+  "type": "module",
+  "main": "./hawkes-net-babylon.mjs",
+  "types": "./hawkes-net-babylon.d.ts",
+  "exports": {
+    ".": {
+      "types": "./hawkes-net-babylon.d.ts",
+      "default": "./hawkes-net-babylon.mjs"
+    }
+  },
+  "files": ["hawkes-net-babylon.mjs", "hawkes-net-babylon.d.ts", "README.md", "LICENSE"],
+  "sideEffects": false,
+  "scripts": {
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@hawkesgen/net": "^1.2.0"
+  },
+  "peerDependencies": {
+    "@babylonjs/core": ">=6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@babylonjs/core": { "optional": true }
+  },
+  "devDependencies": {
+    "@babylonjs/core": "9.30.0"
+  },
+  "license": "MIT",
+  "homepage": "https://net.hawkesgen.com",
+  "repository": { "type": "git", "url": "git+https://github.com/jgriffith3433/hawkesnet-babylon.git" },
+  "keywords": ["babylonjs", "babylon", "multiplayer", "networking", "netcode", "game", "hawkes"]
+}
