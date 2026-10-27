@@ -9,6 +9,6 @@ over `@hawkesgen/net` (the hawkesnet repo's `sdk/js`). One file, `hawkes-net-bab
   `room.sync` (`mine`, `claim`, `push`, `onThing`). A feature the SDK lacks goes into the SDK (hawkesnet), not here.
 - Options given as `undefined` are dropped before they reach the SDK (they would override its defaults).
 - `npm test`: two scenes on NullEngine against a Hawkes Net started in the test from a hawkesnet checkout (`HAWKESNET`,
-  default `../hawkesnet`); install with `npm install --no-save ../hawkesnet/sdk/js` until `@hawkesgen/net` is on npm.
+  default `../hawkesnet`); `npm install` brings `@hawkesgen/net` from the public hawkesnet-js repo by tag (package.json); a new SDK is a tag bump there.
 - `example/` runs with no install (`node tools/serve.mjs`), on the live service's free test rooms.
 - Release: bump `version` (and `VERSION` in the module), tag `v<version>`, `npm publish --access public`.

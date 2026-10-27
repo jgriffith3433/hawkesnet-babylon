@@ -6,8 +6,11 @@ simulated by one player at a time, and players whose tab is in the background sh
 on). No server of your own.
 
 ```bash
-npm install @hawkesgen/net-babylon @babylonjs/core
+npm install github:jgriffith3433/hawkesnet-babylon#v0.1.1 @babylonjs/core
 ```
+
+(It brings `@hawkesgen/net` with it. Once they're on npm: `npm install @hawkesgen/net-babylon @babylonjs/core`.) On a staging
+site, set `globalThis.HAWKES_NET_ENDPOINT` to point the whole scene at another Hawkes Net.
 
 ```js
 import * as BABYLON from '@babylonjs/core';
