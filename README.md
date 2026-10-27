@@ -6,7 +6,7 @@ simulated by one player at a time, and players whose tab is in the background sh
 on). No server of your own.
 
 ```bash
-npm install github:jgriffith3433/hawkesnet-babylon#v0.1.1 @babylonjs/core
+npm install https://github.com/jgriffith3433/hawkesnet-babylon/archive/refs/tags/v0.1.2.tar.gz @babylonjs/core
 ```
 
 (It brings `@hawkesgen/net` with it. Once they're on npm: `npm install @hawkesgen/net-babylon @babylonjs/core`.) On a staging
