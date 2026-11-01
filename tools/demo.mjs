@@ -12,6 +12,8 @@ const sdk = path.join(root, 'node_modules', '@hawkesgen', 'net');
 fs.mkdirSync(out, { recursive: true });
 for (const f of ['hawkes-net.mjs', 'hawkes-net-core.mjs']) fs.copyFileSync(path.join(sdk, f), path.join(out, f));
 fs.copyFileSync(path.join(root, 'hawkes-net-babylon.mjs'), path.join(out, 'hawkes-net-babylon.mjs'));
+// Studio's playtest bot for the page (window.hawkesPlaytest: smoke and two-players).
+fs.copyFileSync(path.join(root, 'example', 'net-playtest.mjs'), path.join(out, 'net-playtest.mjs'));
 let html = fs.readFileSync(path.join(root, 'example', 'index.html'), 'utf8');
 const map = /"@hawkesgen\/net": "[^"]+"/;
 if (!map.test(html) || !html.includes("import('../hawkes-net-babylon.mjs')")) throw new Error('example/index.html changed: update tools/demo.mjs');

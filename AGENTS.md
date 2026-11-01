@@ -16,3 +16,7 @@ over `@hawkesgen/net` (the hawkesnet repo's `sdk/js`). One file, `hawkes-net-bab
   (`tools/demo.mjs`), plus the package tarball. Hawkes Studio (project hawkes-net-babylon) builds it on every beta push,
   publishes it as the beta site and playtests it there; Studio's beta pages set `HAWKES_NET_ENDPOINT` to beta Hawkes Net
   (https://hawkesnet.hawkesgen.ai), so the demo joins beta Net's free test rooms (project `netdemo`).
+  The page has Studio's playtest bot (`example/net-playtest.mjs`, `window.hawkesPlaytest`): `smoke` opens a second
+  player in the same page and checks the room, avatars both ways (the capsule moved by real WASD input), messages both
+  ways and leaving; `two-players` is for Studio's peers playtest (real browsers on one `?room=`). The same file lives in
+  hawkesnet-js and hawkesnet (`public/demo-playtest.mjs`): change all three.
