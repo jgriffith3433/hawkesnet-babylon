@@ -58,6 +58,25 @@
     if (dx || dz) { me.position.x += dx * 5 * dt; me.position.z += dz * 5 * dt; me.rotation.y = Math.atan2(dx, dz); }
     if (mp.room?.sync.mine('crate')) crate.rotation.y += dt;
   });
+  // Studio's playtest bot (net-playtest.mjs): a second player in this page, this capsule moved by real WASD input.
+  const { installNetPlaytest } = await import('./net-playtest.mjs');
+  const { lobby } = await import('@hawkesgen/net');
+  const key = (k, down) => dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { key: k, bubbles: true }));
+  installNetPlaytest({
+    product: 'hawkes-net-babylon',
+    where: (endpoint || globalThis.HAWKES_NET_ENDPOINT || 'https://net.hawkesgen.ai').replace(/^https?:\/\//, ''),
+    main: () => mp.lobby,
+    openBot: async () => {
+      const b = lobby({ project: q.get('project') || 'netdemo', transport: 'relay', ...(endpoint ? { endpoint } : {}), name: 'Playtest bot', log: false });
+      b.join('babylon-demo');
+      return b;
+    },
+    drive: async (step) => { key('d', true); await step(1200); key('d', false); key('w', true); await step(900); key('w', false); await step(100); },
+    myPos: () => { const p = me.getAbsolutePosition(); return [p.x, p.y, p.z]; },
+    shownPos: (id) => { const n = mp.peers.get(id)?.node; return n ? [n.position.x, n.position.y, n.position.z] : null; },
+    botPose: (u) => [-4 + 8 * u, 0, -4],
+    tolerance: 0.3,
+  });
   engine.runRenderLoop(() => scene.render());
   addEventListener('resize', () => engine.resize());
 </script>
