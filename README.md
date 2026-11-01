@@ -1,6 +1,6 @@
 # Hawkes Net for Babylon.js
 
-Multiplayer for a Babylon.js scene in a few lines, on **[Hawkes Net](https://net.hawkesgen.com)**: a shared room per
+Multiplayer for a Babylon.js scene in a few lines, on **[Hawkes Net](https://net.hawkesgen.ai)**: a shared room per
 area, everyone else drawn as an avatar and played back smoothly, your player's place sent each frame, shared moving things
 simulated by one player at a time, and players whose tab is in the background shown as away (an away host hands the room
 on). No server of your own.
@@ -18,7 +18,7 @@ import { multiplayer } from '@hawkesgen/net-babylon';
 
 const mp = multiplayer(scene, {
   babylon: BABYLON,
-  project: 'my-game',            // your project at net.hawkesgen.com
+  project: 'my-game',            // your project at net.hawkesgen.ai
   name: 'Ada',
   player: playerMesh,            // your place and heading go out about 20 times a second
   liveHosts: ['mygame.com'],     // your site: the live rooms; anywhere else (localhost, a preview) the free test rooms
@@ -41,13 +41,13 @@ ball.take();                     // the player who grabbed it simulates it now
   room (express frames, synced state, the shared clock `mp.room.now()`).
 
 **Try it with no install:** serve this folder (`node tools/serve.mjs`), open http://localhost:8796/example/ twice, move with
-WASD. It loads Babylon from its CDN and the SDK from net.hawkesgen.com, and joins the demo project's test room.
+WASD. It loads Babylon from its CDN and the SDK from net.hawkesgen.ai, and joins the demo project's test room.
 
-**Getting in:** make a free account and a project at [net.hawkesgen.com](https://net.hawkesgen.com). Pages on your
+**Getting in:** make a free account and a project at [net.hawkesgen.ai](https://net.hawkesgen.ai). Pages on your
 project's sites join with no key; localhost always may, in test rooms. A game with its own server can hand out tickets
 instead (see the SDK's README).
 
 `npm test` runs two Babylon scenes (NullEngine) against a Hawkes Net started in the test (a
-[hawkesnet](https://net.hawkesgen.com) checkout beside this one, or `HAWKESNET=<path>`).
+[hawkesnet](https://net.hawkesgen.ai) checkout beside this one, or `HAWKESNET=<path>`).
 
 License: [MIT](LICENSE).

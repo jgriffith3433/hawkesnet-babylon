@@ -18,7 +18,7 @@ export interface RemotePlayer {
 export interface MultiplayerOptions extends Partial<LobbyOptions> {
   /** The BABYLON namespace (import * as BABYLON from '@babylonjs/core', or the global build). Default globalThis.BABYLON. */
   babylon?: any;
-  /** Your Hawkes Net project (net.hawkesgen.com). */
+  /** Your Hawkes Net project (net.hawkesgen.ai). */
   project: string;
   name?: string;
   /** The area's shared room (default 'lobby'). */
