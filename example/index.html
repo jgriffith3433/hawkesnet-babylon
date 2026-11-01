@@ -10,20 +10,22 @@
   #hud { position: fixed; left: 12px; top: 12px; background: rgba(0,0,0,.55); padding: 8px 12px; border-radius: 8px; line-height: 1.5; }
   #hud b { color: #9fe870; }
 </style>
-<!-- No install: Babylon from its CDN, the SDK from net.hawkesgen.com, this module from the page's folder. With npm,
+<!-- No install: Babylon from its CDN, the SDK from net.hawkesgen.ai, this module from the page's folder. With npm,
      import from '@babylonjs/core', '@hawkesgen/net' and '@hawkesgen/net-babylon' instead. -->
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script type="importmap">
-{ "imports": { "@hawkesgen/net": "https://net.hawkesgen.com/sdk/hawkes-net@1.mjs" } }
+{ "imports": { "@hawkesgen/net": "https://net.hawkesgen.ai/sdk/hawkes-net@1.mjs" } }
 </script>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice</div>
+<div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice<br><small id="net"></small></div>
 <script type="module">
   // ?net=http://127.0.0.1:8786 tries a Hawkes Net on this machine (hawkesnet: npm run dev); ?project= your project.
   const q = new URLSearchParams(location.search);
   const endpoint = q.get('net') || undefined;
+  // On a Studio beta site the page names beta Hawkes Net (window.HAWKES_NET_ENDPOINT); anywhere else the live one.
+  document.getElementById('net').textContent = 'on ' + (endpoint || globalThis.HAWKES_NET_ENDPOINT || 'https://net.hawkesgen.ai').replace(/^https?:\/\//, '');
   const { multiplayer } = await import('../hawkes-net-babylon.mjs');
   const B = window.BABYLON;
   const engine = new B.Engine(document.getElementById('c'), true);
