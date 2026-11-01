@@ -12,3 +12,7 @@ over `@hawkesgen/net` (the hawkesnet repo's `sdk/js`). One file, `hawkes-net-bab
   default `../hawkesnet`); `npm install` brings `@hawkesgen/net` from the public hawkesnet-js repo by tag (package.json); a new SDK is a tag bump there.
 - `example/` runs with no install (`node tools/serve.mjs`), on the live service's free test rooms.
 - Release: bump `version` (and `VERSION` in the module), tag `v<version>`, `npm publish --access public`.
+- **Demo site:** `npm run build` makes `dist/`: the example page with this module and the pinned `@hawkesgen/net` beside it
+  (`tools/demo.mjs`), plus the package tarball. Hawkes Studio (project hawkes-net-babylon) builds it on every beta push,
+  publishes it as the beta site and playtests it there; Studio's beta pages set `HAWKES_NET_ENDPOINT` to beta Hawkes Net
+  (https://hawkesnet.hawkesgen.ai), so the demo joins beta Net's free test rooms (project `netdemo`).

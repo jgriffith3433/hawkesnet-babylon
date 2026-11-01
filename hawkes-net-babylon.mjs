@@ -1,4 +1,4 @@
-// Hawkes Net for Babylon.js (https://net.hawkesgen.com): multiplayer for a Babylon scene in a few lines. A shared room per
+// Hawkes Net for Babylon.js (https://net.hawkesgen.ai): multiplayer for a Babylon scene in a few lines. A shared room per
 // area (the SDK's lobby: live and test rooms, shards, rejoining), everyone else drawn as an avatar played back smoothly a
 // little behind (the SDK's Track on the room's clock), your player's place sent each frame, shared moving things
 // simulated by one player at a time, and players in the background shown as away.
@@ -12,7 +12,7 @@
 import { lobby as makeLobby, background, inBackground, Track } from '@hawkesgen/net';
 
 export { background, inBackground };
-export const VERSION = '0.1.2';
+export const VERSION = '0.1.3';
 
 const POSE_MS = 50;
 const AWAY_ALPHA = 0.35;
