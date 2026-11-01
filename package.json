@@ -1,7 +1,7 @@
 {
   "name": "@hawkesgen/net-babylon",
-  "version": "0.1.2",
-  "description": "Multiplayer for Babylon.js scenes on Hawkes Net (https://net.hawkesgen.com): shared rooms, avatars played back smoothly, shared moving things, away players. A few lines on top of @hawkesgen/net.",
+  "version": "0.1.3",
+  "description": "Multiplayer for Babylon.js scenes on Hawkes Net (https://net.hawkesgen.ai): shared rooms, avatars played back smoothly, shared moving things, away players. A few lines on top of @hawkesgen/net.",
   "type": "module",
   "main": "./hawkes-net-babylon.mjs",
   "types": "./hawkes-net-babylon.d.ts",
@@ -22,7 +22,7 @@
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.mjs\""
   },
   "dependencies": {
-    "@hawkesgen/net": "https://github.com/jgriffith3433/hawkesnet-js/archive/refs/tags/v1.2.1.tar.gz"
+    "@hawkesgen/net": "https://github.com/jgriffith3433/hawkesnet-js/archive/refs/tags/v1.3.0.tar.gz"
   },
   "peerDependencies": {
     "@babylonjs/core": ">=6.0.0"
@@ -36,7 +36,7 @@
     "@babylonjs/core": "9.30.0"
   },
   "license": "MIT",
-  "homepage": "https://net.hawkesgen.com",
+  "homepage": "https://net.hawkesgen.ai",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jgriffith3433/hawkesnet-babylon.git"
