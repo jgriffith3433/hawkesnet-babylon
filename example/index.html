@@ -177,6 +177,42 @@
         await until(() => { const n = mp.peers.get(bot.id)?.node; return n && n.getChildMeshes().some((m) => m.name.startsWith('hn-tag-') && m.isEnabled()); }, 5000, "the second player's nameplate over its avatar");
         return `own and ${bot.name ?? 'the second player'}'s nameplates shown`;
       });
+      // Presence: a third player pops in, waves are seen both ways, and the third player fades out when it leaves.
+      let guest = null;
+      const armOn = (node) => node?.getChildMeshes().some((m) => m.name.startsWith('hn-emote-arm'));
+      await check('A joining player plays a spawn effect for the other tab', async () => {
+        guest = lobby({ project: q.get('project') || 'netdemo', transport: 'relay', ...(endpoint ? { endpoint } : {}), name: 'Playtest guest', log: false });
+        guest.join('babylon-demo');
+        await until(() => guest.ready && mp.peers.has(guest.id), 15000, 'the guest to join the room');
+        guest.pose([2, 0, -2], 0);
+        let sawRing = false;
+        await until(() => { sawRing = sawRing || Boolean(scene.getMeshByName('hn-spawn-ring')); return mp.presence.some((e) => e.type === 'spawn' && e.id === guest.id); }, 8000, "a spawn event for the guest's avatar");
+        const n = mp.peers.get(guest.id).node;
+        const small = n.scaling.x < 1 || n.getChildMeshes()[0].visibility < 1;
+        await until(() => { sawRing = sawRing || Boolean(scene.getMeshByName('hn-spawn-ring')); return sawRing; }, 2000, 'the spawn ring on the floor');
+        await until(() => n.scaling.x === 1 && n.getChildMeshes()[0].visibility === 1, 4000, 'the pop to settle at full size');
+        return `popped in${small ? ' from small and faint' : ''}, with a ring`;
+      });
+      await check('Pressing E shows a wave on the other tab', async () => {
+        let got = 0; const off = bot.on('hn-emote', (d) => { if (d?.e === 'wave') got++; });
+        key('e', true); key('e', false);
+        await until(() => got > 0, 5000, 'the other player to receive the wave');
+        off();
+        if (!armOn(me)) throw new Error('no raised arm on this player when pressing E');
+        // And theirs shows here.
+        bot.send('hn-emote', { e: 'wave' });
+        await until(() => mp.presence.some((e) => e.type === 'emote' && e.id === bot.id) && armOn(mp.peers.get(bot.id)?.node), 5000, "a raised arm on the other player's avatar");
+        return 'E waves here and there, an arm swings on the avatar';
+      });
+      await check('A leaving player fades out', async () => {
+        if (!guest) throw new Error('no guest joined');
+        const id = guest.id, node = mp.peers.get(id)?.node;
+        await guest.leave();
+        await until(() => mp.leaving.has(id), 10000, 'the guest avatar to start fading');
+        await until(() => node.getChildMeshes()[0].visibility < 1, 2000, 'the avatar to turn see-through');
+        await until(() => !mp.leaving.has(id) && node.isDisposed(), 4000, 'the faded avatar to be removed');
+        return 'faded out, then gone';
+      });
     },
   });
   engine.runRenderLoop(() => scene.render());

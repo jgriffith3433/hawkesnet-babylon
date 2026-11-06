@@ -30,8 +30,19 @@ export interface MultiplayerOptions extends Partial<LobbyOptions> {
   /** Or your pose yourself: position, yaw (radians) and any small extra values. */
   getPose?: () => { position: [number, number, number] | number[]; yaw?: number; extra?: Record<string, unknown> | null } | null;
   /** How others look: a node for a player (default: a capsule in their color with their name). */
+  /** Key presses that emote for everyone to see (default `{ e: 'wave' }`; `false` for none). */
+  emoteKeys?: Record<string, EmoteKind> | false;
   avatar?: (peer: { id: string; name: string }, BABYLON: any, scene: any) => BabylonNode;
 }
+
+export type EmoteKind = 'wave';
+
+/** A presence event: a player popped in (`spawn`), is fading out (`leave`), or emoted (`emote`; yours too). */
+export interface PresenceEvent { type: 'spawn' | 'leave' | 'emote'; id: string; name: string; emote?: EmoteKind; at: number }
+
+/** A playing emote on a node (a raised, swinging arm). multiplayer() drives it; otherwise call update(performance.now()) each frame. */
+export interface PlayingEmote { kind: EmoteKind; done: boolean; update(now: number): void; dispose(): void }
+export declare function playEmote(node: BabylonNode, kind: EmoteKind, BABYLON: any, scene: any): PlayingEmote;
 
 export interface Shared {
   /** Simulate it from here (the player who grabbed it). False if someone holds it. */
@@ -47,6 +58,14 @@ export interface Multiplayer {
   readonly isHost: boolean;
   /** Everyone else, by id. */
   readonly peers: Map<string, RemotePlayer>;
+  /** Emote ('wave') on your player; others see it on your avatar. False inside the short cooldown. */
+  emote(kind?: EmoteKind): boolean;
+  /** Players popping in, fading out and emoting. Returns off(). */
+  onPresence(fn: (e: PresenceEvent) => void): () => void;
+  /** The last 50 presence events. */
+  readonly presence: PresenceEvent[];
+  /** Avatars fading out right now, by id. */
+  readonly leaving: Map<string, { node: BabylonNode }>;
   send(kind: string, data?: unknown, opt?: SendOptions): void;
   on<T = any>(kind: string, fn: (data: T, from: Peer | null, meta: MessageMeta) => void): () => void;
   when(event: string, fn: (e: any) => void): () => void;
