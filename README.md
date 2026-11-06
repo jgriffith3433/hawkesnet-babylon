@@ -142,6 +142,9 @@ An option given as `undefined` is ignored (the SDK's default stays).
 
 **Try it with no install:** serve this folder (`node tools/serve.mjs`), open http://localhost:8796/example/ twice, move with
 WASD. It loads Babylon from its CDN and the SDK from net.hawkesgen.ai, and joins the demo project's test room.
+The demo is also a small game-feel reference: the capsule accelerates and brakes (it does not snap to full speed), the
+camera eases after it, and on a touch device (or with `?touch=1`) an on-screen joystick appears and drives the same
+movement. Its `feel` playtest scenario checks all three with real key and pointer input.
 
 **Getting in:** make a free account and a project at [net.hawkesgen.ai](https://net.hawkesgen.ai). Pages on your
 project's sites join with no key; localhost always may, in test rooms. A game with its own server can hand out tickets
