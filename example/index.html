@@ -30,20 +30,104 @@
   const B = window.BABYLON;
   const engine = new B.Engine(document.getElementById('c'), true);
   const scene = new B.Scene(engine);
-  scene.clearColor = new B.Color4(0.06, 0.07, 0.09, 1);
-  const cam = new B.ArcRotateCamera('cam', -Math.PI / 2, 1.0, 18, B.Vector3.Zero(), scene);
+  scene.clearColor = new B.Color4(0.05, 0.07, 0.12, 1);
+  scene.fogMode = B.Scene.FOGMODE_EXP2; scene.fogDensity = 0.012; scene.fogColor = new B.Color3(0.55, 0.68, 0.85);
+  const cam = new B.ArcRotateCamera('cam', -Math.PI / 2, 1.0, 20, new B.Vector3(0, 1, 0), scene);
+  cam.lowerRadiusLimit = 8; cam.upperRadiusLimit = 34; cam.upperBetaLimit = 1.45;
   cam.attachControl(true);
-  new B.HemisphericLight('sun', new B.Vector3(0.3, 1, 0.2), scene);
-  const ground = B.MeshBuilder.CreateGround('ground', { width: 30, height: 30 }, scene);
-  const gm = new B.StandardMaterial('g', scene); gm.diffuseColor = new B.Color3(0.18, 0.22, 0.2); ground.material = gm;
-  const me = B.MeshBuilder.CreateCapsule('me', { height: 1.8, radius: 0.35 }, scene);
-  me.position.y = 0;
-  me.setPivotPoint(new B.Vector3(0, -0.9, 0));
-  const mm = new B.StandardMaterial('m', scene); mm.diffuseColor = new B.Color3(1, 0.85, 0.3); me.material = mm;
+
+  // Procedural textures drawn on canvases: nothing to download, nothing to generate.
+  const paint = (label, size, draw) => { const t = new B.DynamicTexture(label, size, scene, true); draw(t.getContext(), size); t.update(); return t; };
+  const rnd = (() => { let s = 7; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
+
+  // Sky: a gradient dome with stars toward the top, no lighting on it.
+  const skyTex = paint('skyTex', { width: 1024, height: 512 }, (g, { width: w, height: h }) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, '#0b1633'); gr.addColorStop(0.45, '#2c4f86'); gr.addColorStop(0.8, '#e69a6a'); gr.addColorStop(1, '#f6d6a0');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(255,255,255,${0.3 + rnd() * 0.7})`; const r = rnd() < 0.1 ? 2 : 1; g.fillRect(rnd() * w, rnd() * h * 0.4, r, r); }
+  });
+  const sky = B.MeshBuilder.CreateSphere('sky', { diameter: 400, segments: 24, sideOrientation: B.Mesh.BACKSIDE }, scene);
+  const skyMat = new B.StandardMaterial('skyMat', scene);
+  skyMat.disableLighting = true; skyMat.backFaceCulling = false; skyMat.fogEnabled = false;
+  skyMat.emissiveTexture = skyTex; skyMat.diffuseColor = B.Color3.Black(); skyMat.specularColor = B.Color3.Black();
+  sky.material = skyMat; sky.infiniteDistance = true; sky.isPickable = false;
+
+  // Light: a cool sky fill, a warm low sun that casts shadows, and a glow in the middle of the arena.
+  const fill = new B.HemisphericLight('fill', new B.Vector3(0.2, 1, 0.1), scene);
+  fill.intensity = 0.55; fill.diffuse = new B.Color3(0.75, 0.85, 1); fill.groundColor = new B.Color3(0.25, 0.22, 0.3);
+  const sun = new B.DirectionalLight('sun', new B.Vector3(-0.5, -1, -0.35), scene);
+  sun.position = new B.Vector3(20, 30, 14); sun.intensity = 1.1; sun.diffuse = new B.Color3(1, 0.88, 0.7);
+  const shadows = new B.ShadowGenerator(1024, sun);
+  shadows.useBlurExponentialShadowMap = true; shadows.blurKernel = 16; shadows.darkness = 0.35;
+
+  // Ground: a flagstone arena floor with a ring painted in it.
+  const floorTex = paint('floorTex', 1024, (g, S) => {
+    const n = 8, c = S / n;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const v = 70 + Math.floor(rnd() * 28);
+      g.fillStyle = `rgb(${v},${v + 6},${v + 14})`; g.fillRect(x * c, y * c, c, c);
+      g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 4; g.strokeRect(x * c, y * c, c, c);
+    }
+    for (let i = 0; i < 5000; i++) { const v = rnd() < 0.5 ? 0 : 255; g.fillStyle = `rgba(${v},${v},${v},.05)`; g.fillRect(rnd() * S, rnd() * S, 2, 2); }
+  });
+  floorTex.uScale = floorTex.vScale = 4;
+  const ground = B.MeshBuilder.CreateGround('ground', { width: 36, height: 36 }, scene);
+  const gm = new B.StandardMaterial('g', scene);
+  gm.diffuseTexture = floorTex; gm.specularColor = new B.Color3(0.12, 0.12, 0.14);
+  ground.material = gm; ground.receiveShadows = true;
+  const ringTex = paint('ringTex', 512, (g, S) => {
+    g.clearRect(0, 0, S, S); g.strokeStyle = 'rgba(159,232,112,.9)'; g.lineWidth = 8;
+    g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 12, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 3; g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 40, 0, Math.PI * 2); g.stroke();
+  });
+  ringTex.hasAlpha = true;
+  const ring = B.MeshBuilder.CreateGround('ring', { width: 12, height: 12 }, scene);
+  ring.position.y = 0.01;
+  const rm = new B.StandardMaterial('ringMat', scene);
+  rm.diffuseTexture = ringTex; rm.useAlphaFromDiffuseTexture = true; rm.emissiveColor = new B.Color3(0.35, 0.6, 0.3); rm.disableLighting = true;
+  ring.material = rm;
+
+  // Pillars round the edge, each with a torch that really lights the floor.
+  const stone = new B.StandardMaterial('stone', scene);
+  stone.diffuseTexture = floorTex; stone.diffuseColor = new B.Color3(0.9, 0.9, 1);
+  const flame = new B.StandardMaterial('flame', scene);
+  flame.emissiveColor = new B.Color3(1, 0.7, 0.3); flame.disableLighting = true;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2, x = Math.cos(a) * 15, z = Math.sin(a) * 15;
+    const pil = B.MeshBuilder.CreateCylinder('pillar' + i, { height: 4, diameterTop: 1, diameterBottom: 1.4, tessellation: 12 }, scene);
+    pil.position.set(x, 2, z); pil.material = stone; pil.receiveShadows = true; shadows.addShadowCaster(pil);
+    const f = B.MeshBuilder.CreateSphere('flame' + i, { diameter: 0.6, segments: 8 }, scene);
+    f.position.set(x, 4.5, z); f.material = flame;
+    const torch = new B.PointLight('torch' + i, new B.Vector3(x * 0.92, 4.2, z * 0.92), scene);
+    torch.diffuse = new B.Color3(1, 0.65, 0.3); torch.intensity = 0.35; torch.range = 14;
+  }
+
+  // The player: a node standing on the floor (that is what Hawkes Net sends), a capsule in it, a nameplate over it.
+  const me = new B.TransformNode('me', scene);
+  const body = B.MeshBuilder.CreateCapsule('me-body', { height: 1.8, radius: 0.35 }, scene);
+  body.position.y = 0.9; body.parent = me;
+  const mm = new B.StandardMaterial('m', scene); mm.diffuseColor = new B.Color3(1, 0.85, 0.3); body.material = mm;
+  shadows.addShadowCaster(body);
   const crate = B.MeshBuilder.CreateBox('crate', { size: 1 }, scene);
-  crate.position.set(3, 0.5, 3);
+  crate.position.set(3, 0.5, 3); shadows.addShadowCaster(crate);
+  const cm = new B.StandardMaterial('crateMat', scene); cm.diffuseColor = new B.Color3(0.75, 0.5, 0.25); crate.material = cm;
+  // Other players' capsules (made by the module) cast shadows too.
+  scene.onNewMeshAddedObservable.add((m) => { if (m.name.startsWith('hn-body-')) shadows.addShadowCaster(m); });
+
+  // A nameplate in the module's own style, for the local player (the module draws everyone else's).
+  const plate = (label, parent) => {
+    const t = B.MeshBuilder.CreatePlane('me-tag', { width: 1.6, height: 0.4 }, scene);
+    t.position.y = 2.2; t.billboardMode = B.Mesh.BILLBOARDMODE_ALL; t.parent = parent; t.isPickable = false;
+    const tex = new B.DynamicTexture('me-tagtex', { width: 512, height: 128 }, scene, false);
+    tex.hasAlpha = true; tex.drawText(label, null, 90, 'bold 64px sans-serif', '#9fe870', 'transparent', true);
+    const tm = new B.StandardMaterial('me-tagmat', scene);
+    tm.diffuseTexture = tex; tm.emissiveColor = new B.Color3(1, 1, 1); tm.disableLighting = true; tm.useAlphaFromDiffuseTexture = true; tm.backFaceCulling = false;
+    t.material = tm;
+  };
 
   const name = 'Player ' + Math.floor(Math.random() * 900 + 100);
+  plate(name, me);
   const mp = multiplayer(scene, { babylon: B, project: q.get('project') || 'netdemo', endpoint, name, player: me, area: 'babylon-demo' });
   // The host spins the crate; everyone sees it.
   mp.share(crate, 'crate');
@@ -55,7 +139,8 @@
   scene.onBeforeRenderObservable.add(() => {
     const dt = engine.getDeltaTime() / 1000;
     const dx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), dz = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
-    if (dx || dz) { me.position.x += dx * 5 * dt; me.position.z += dz * 5 * dt; me.rotation.y = Math.atan2(dx, dz); }
+    if (dx || dz) { me.position.x += dx * 5 * dt; me.position.z += dz * 5 * dt; me.rotation.y = Math.atan2(dx, dz);
+      cam.target.x += (me.position.x - cam.target.x) * Math.min(1, dt * 4); cam.target.z += (me.position.z - cam.target.z) * Math.min(1, dt * 4); }
     if (mp.room?.sync.mine('crate')) crate.rotation.y += dt;
   });
   // Studio's playtest bot (net-playtest.mjs): a second player in this page, this capsule moved by real WASD input.
@@ -76,6 +161,23 @@
     shownPos: (id) => { const n = mp.peers.get(id)?.node; return n ? [n.position.x, n.position.y, n.position.z] : null; },
     botPose: (u) => [-4 + 8 * u, 0, -4],
     tolerance: 0.3,
+    // Criteria checks on the look of the scene, run in the smoke scenario while the second player is in the room.
+    extra: async ({ check, main, bot, until }) => {
+      await check('The scene is lit, with a textured floor and a sky', async () => {
+        const lights = scene.lights.length;
+        if (lights < 3) throw new Error(`only ${lights} lights`);
+        if (!ground.material?.diffuseTexture) throw new Error('the floor has no texture');
+        if (!sky.material?.emissiveTexture || !sky.isEnabled()) throw new Error('no sky');
+        if (!shadows.getShadowMap()) throw new Error('no shadows');
+        return `${lights} lights, floor and sky textured, shadows on`;
+      });
+      await check('Every avatar shows a nameplate with its name', async () => {
+        const mine = me.getChildMeshes().some((m) => m.name === 'me-tag' && m.isEnabled());
+        if (!mine) throw new Error("this player's own nameplate is missing");
+        await until(() => { const n = mp.peers.get(bot.id)?.node; return n && n.getChildMeshes().some((m) => m.name.startsWith('hn-tag-') && m.isEnabled()); }, 5000, "the second player's nameplate over its avatar");
+        return `own and ${bot.name ?? 'the second player'}'s nameplates shown`;
+      });
+    },
   });
   engine.runRenderLoop(() => scene.render());
   addEventListener('resize', () => engine.resize());
