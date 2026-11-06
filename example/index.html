@@ -303,9 +303,11 @@
     botPose: (u) => [-4 + 8 * u, 0, -4],
     tolerance: 0.3,
     // Criteria checks on the look of the scene, run in the smoke scenario while the second player is in the room.
-    extra: async ({ check, main, bot, until, wait }) => {
+    extra: async ({ check, main, bot, until, wait, event, options = {} }) => {
       // Feel: real key and pointer input; the numbers are read from the controls the page really runs.
-      await feelChecks({ check, until, wait });
+      // Same named setup as the feel scenario: the page is set up as a touch device, so the stick shows before it is dragged.
+      if (options.touch !== false) { pretendTouch = true; showStick(touchCapable()); event?.('touch-device', 'setup: page set up as a touch device'); }
+      await feelChecks({ check, until, wait, event: event || (() => {}) });
       await check('The scene is lit, with a textured floor and a sky', async () => {
         const lights = scene.lights.length;
         if (lights < 3) throw new Error(`only ${lights} lights`);
