@@ -350,7 +350,12 @@
         const before = audio.stats.chimes;
         const g = lobby({ project: q.get('project') || 'netdemo', transport: 'relay', ...(endpoint ? { endpoint } : {}), name: 'Chime guest', log: false });
         g.join('babylon-demo');
-        try { await until(() => audio.stats.chimes > before, 15000, 'a chime for the joining player'); } finally { await g.leave(); }
+        try {
+          // A player appears (and chimes) when their first pose arrives, so the guest has to send one, as a real player does.
+          await until(() => g.ready && mp.peers.has(g.id), 15000, 'the guest to join the room');
+          g.pose([-2, 0, 2], 0);
+          await until(() => audio.stats.chimes > before, 15000, 'a chime for the joining player');
+        } finally { await g.leave(); }
         return `chimed as ${g.name ?? 'the guest'} joined (${audio.stats.chimes} so far, sound ${audio.state})`;
       });
       await check('The mute button silences everything and is remembered', async () => {
