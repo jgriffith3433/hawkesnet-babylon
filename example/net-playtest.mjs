@@ -32,6 +32,10 @@ export function installNetPlaytest(o) {
     { id: 'two-players', title: 'Real browsers on one ?room= find each other, move and message', seconds: 75, tags: ['full', 'multiplayer'],
       description: 'Run with Studio peers 2-4: each browser waits for another player in its ?room=, moves by real input, checks it sees the other move and that messages go both ways.' },
   ];
+  // A page may add scenarios of its own: o.scenarios = [{ id, title, seconds, tags, description, run: async (c) => {} }], where c has
+  // check, event, until, wait, metric, progress, options and finish-by-return (the run is won when every check passed).
+  const custom = o.scenarios ?? [];
+  for (const s of custom) scenarios.push({ id: s.id, title: s.title, seconds: s.seconds, tags: s.tags, description: s.description });
   const STALL = 60;
   let run = null;
   let bot = null;
@@ -247,7 +251,9 @@ export function installNetPlaytest(o) {
       event('start', id); event('scene', 'Demo'); show();
       try {
         if (!sc) { problem('bug', `no playtest scenario "${id}" (have: ${scenarios.map((s) => s.id).join(', ')})`); return finish('error'); }
-        await (id === 'two-players' ? twoPlayers() : smoke());
+        const mineCustom = custom.find((s) => s.id === id);
+        if (mineCustom) { await mineCustom.run({ check, event, until, wait, metric, progress, options: run.options, step }); progress(1); finish(run.lines.every((l) => l.ok) ? 'won' : 'lost'); }
+        else await (id === 'two-players' ? twoPlayers() : smoke());
       } catch (e) {
         if (mine === run && !mine.done) { problem('bug', `bot error: ${e?.message ?? e}`); log(String(e?.stack ?? e)); finish('error'); }
       } finally {

@@ -162,7 +162,8 @@
 
   const MAX_SPEED = 5, ACCEL = 18, DECEL = 14;   // units/s, units/s²
   const FOLLOW = 4;                              // camera follow rate: higher is tighter
-  const touchCapable = () => q.get('touch') === '1' || (navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+  let pretendTouch = false;                      // set only by the playtest's named setup option {touch:true}
+  const touchCapable = () => pretendTouch || q.get('touch') === '1' || (navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
   const stick = document.getElementById('stick'), knob = stick.firstElementChild;
   const joy = { x: 0, y: 0, id: null };          // y up is positive
   const joyMove = (e) => {
@@ -216,7 +217,78 @@
   const { installNetPlaytest } = await import('./net-playtest.mjs');
   const { lobby } = await import('@hawkesgen/net');
   const key = (k, down) => dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { key: k, bubbles: true }));
+  // The three feel checks (movement, camera, touch stick) with real key and pointer input; shared by smoke and the 'feel' scenario.
+  const feelChecks = async ({ check, until, wait, event = () => {} }) => {
+      const sample = async (ms, f) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { f(); await wait(16); } f(); };
+      await check('Movement accelerates and decelerates', async () => {
+        await until(() => motion.speed < 0.01, 5000, 'the player to be standing still');
+        const up = [], down = [];
+        key('d', true);
+        await sample(1000, () => up.push(motion.speed));
+        const top = Math.max(...up);
+        key('d', false);
+        await sample(900, () => down.push(motion.speed));
+        const early = up.find((v) => v > 0);
+        if (!(early < MAX_SPEED * 0.6)) throw new Error(`jumped straight to speed ${early?.toFixed(2)}`);
+        if (top < MAX_SPEED * 0.9) throw new Error(`never reached full speed (${top.toFixed(2)})`);
+        const slow = down.find((v) => v < top * 0.9 && v > 0.05);
+        if (slow === undefined) throw new Error('stopped dead the moment the key was released');
+        if (motion.speed > 0.01) throw new Error(`still sliding at ${motion.speed.toFixed(2)}`);
+        event('movement-eased', `0 to ${top.toFixed(1)} units/s, braked to a stop`);
+        return `0 to ${top.toFixed(1)} over ${up.findIndex((v) => v >= top * 0.99) * 16} ms, braked to a stop`;
+      });
+      await check('The camera follows with easing', async () => {
+        await until(() => motion.speed < 0.01 && motion.camLag < 0.05, 6000, 'the camera to settle on the player');
+        const lag = [];
+        key('w', true);
+        await sample(900, () => lag.push(motion.camLag));
+        key('w', false);
+        const peak = Math.max(...lag);
+        if (peak < 0.3) throw new Error(`the camera stuck to the player (trailed by only ${peak.toFixed(2)})`);
+        if (lag[0] > peak * 0.5) throw new Error('the camera jumped rather than eased');
+        const ms = await until(() => motion.camLag < 0.05, 5000, () => `the camera to catch up (still ${motion.camLag.toFixed(2)} behind)`);
+        if (ms < 100) throw new Error('the camera snapped to the player instead of easing in');
+        event('camera-eased', `trailed ${peak.toFixed(1)} units, settled in ${Math.round(ms)} ms`);
+        return `trailed ${peak.toFixed(1)} units, settled in ${Math.round(ms)} ms`;
+      });
+      await check('A touch joystick shows on touch devices and moves the player', async () => {
+        // A desktop browser is not a touch device. With the named setup option {touch:true} the page is set up as one (the same
+        // switch as ?touch=1) and the stick must then appear by the page's own rule, on screen, before it is dragged.
+        const was = stick.style.display;
+        if (touchCapable() !== (was === 'block')) throw new Error(`joystick display is ${was} but touch is ${touchCapable()}`);
+        if (!touchCapable()) { showStick(true); event('touch-setup', 'this browser is not a touch device: stick forced on to test the drag'); }
+        else {
+          const sr = stick.getBoundingClientRect();
+          if (getComputedStyle(stick).display === 'none' || sr.width < 40 || sr.left < 0 || sr.bottom > innerHeight + 1) throw new Error('the stick is not on screen');
+          event('joystick-visible', `touch device: stick shown at ${Math.round(sr.left)},${Math.round(sr.top)} (${Math.round(sr.width)} px)`);
+        }
+        await until(() => motion.speed < 0.01, 5000, 'the player to stand still');
+        const r = stick.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const ev = (type, x, y) => stick.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true, cancelable: true, clientX: x, clientY: y }));
+        const from = me.position.clone(), speeds = [];
+        ev('pointerdown', cx, cy); ev('pointermove', cx + r.width / 2, cy);
+        await sample(800, () => speeds.push(motion.speed));
+        const moved = me.position.x - from.x, knobOut = knob.style.transform;
+        ev('pointerup', cx, cy);
+        await until(() => motion.speed < 0.01, 4000, 'the player to stop after the stick was let go');
+        showStick(was === 'block');
+        if (moved < 1.5) throw new Error(`dragging the stick moved the player only ${moved.toFixed(2)}`);
+        if (!knobOut) throw new Error('the stick knob did not follow the finger');
+        if (knob.style.transform) throw new Error('the knob did not return to the centre');
+        event('joystick-moved', `dragged right: moved ${moved.toFixed(1)}, touch device: ${touchCapable()}`);
+        return `dragged right: moved ${moved.toFixed(1)}, top speed ${Math.max(...speeds).toFixed(1)}; touch device: ${touchCapable()}`;
+      });
+  };
   installNetPlaytest({
+    scenarios: [{
+      id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 40, tags: ['full'],
+      description: 'One player alone on the demo: walks by real keys (acceleration, braking), watches the camera ease after it, then with the named setup option touch:true (default here) the page is set up as a touch device, the joystick must appear on screen and is dragged by real pointer events. Options: touch (default true).',
+      run: async ({ check, event, until, wait, options }) => {
+        await until(() => scene.isReady() && me, 20000, 'the scene to be ready');
+        if (options.touch !== false) { pretendTouch = true; showStick(touchCapable()); event('touch-device', 'setup: page set up as a touch device'); }
+        await feelChecks({ check, until, wait, event });
+      },
+    }],
     product: 'hawkes-net-babylon',
     where: (endpoint || globalThis.HAWKES_NET_ENDPOINT || 'https://net.hawkesgen.ai').replace(/^https?:\/\//, ''),
     main: () => mp.lobby,
@@ -233,55 +305,7 @@
     // Criteria checks on the look of the scene, run in the smoke scenario while the second player is in the room.
     extra: async ({ check, main, bot, until, wait }) => {
       // Feel: real key and pointer input; the numbers are read from the controls the page really runs.
-      const sample = async (ms, f) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { f(); await wait(16); } f(); };
-      await check('Movement accelerates and decelerates', async () => {
-        await until(() => motion.speed < 0.01, 5000, 'the player to be standing still');
-        const up = [], down = [];
-        key('d', true);
-        await sample(1000, () => up.push(motion.speed));
-        const top = Math.max(...up);
-        key('d', false);
-        await sample(900, () => down.push(motion.speed));
-        const early = up.find((v) => v > 0);
-        if (!(early < MAX_SPEED * 0.6)) throw new Error(`jumped straight to speed ${early?.toFixed(2)}`);
-        if (top < MAX_SPEED * 0.9) throw new Error(`never reached full speed (${top.toFixed(2)})`);
-        const slow = down.find((v) => v < top * 0.9 && v > 0.05);
-        if (slow === undefined) throw new Error('stopped dead the moment the key was released');
-        if (motion.speed > 0.01) throw new Error(`still sliding at ${motion.speed.toFixed(2)}`);
-        return `0 to ${top.toFixed(1)} over ${up.findIndex((v) => v >= top * 0.99) * 16} ms, braked to a stop`;
-      });
-      await check('The camera follows with easing', async () => {
-        await until(() => motion.speed < 0.01 && motion.camLag < 0.05, 6000, 'the camera to settle on the player');
-        const lag = [];
-        key('w', true);
-        await sample(900, () => lag.push(motion.camLag));
-        key('w', false);
-        const peak = Math.max(...lag);
-        if (peak < 0.3) throw new Error(`the camera stuck to the player (trailed by only ${peak.toFixed(2)})`);
-        if (lag[0] > peak * 0.5) throw new Error('the camera jumped rather than eased');
-        const ms = await until(() => motion.camLag < 0.05, 5000, () => `the camera to catch up (still ${motion.camLag.toFixed(2)} behind)`);
-        if (ms < 100) throw new Error('the camera snapped to the player instead of easing in');
-        return `trailed ${peak.toFixed(1)} units, settled in ${Math.round(ms)} ms`;
-      });
-      await check('A touch joystick shows on touch devices and moves the player', async () => {
-        const was = stick.style.display;
-        if (touchCapable() !== (was === 'block')) throw new Error(`joystick display is ${was} but touch is ${touchCapable()}`);
-        showStick(true);   // setup shortcut: this bot's browser may not be a touch device
-        await until(() => motion.speed < 0.01, 5000, 'the player to stand still');
-        const r = stick.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-        const ev = (type, x, y) => stick.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true, cancelable: true, clientX: x, clientY: y }));
-        const from = me.position.clone(), speeds = [];
-        ev('pointerdown', cx, cy); ev('pointermove', cx + r.width / 2, cy);
-        await sample(800, () => speeds.push(motion.speed));
-        const moved = me.position.x - from.x, knobOut = knob.style.transform;
-        ev('pointerup', cx, cy);
-        await until(() => motion.speed < 0.01, 4000, 'the player to stop after the stick was let go');
-        showStick(was === 'block');
-        if (moved < 1.5) throw new Error(`dragging the stick moved the player only ${moved.toFixed(2)}`);
-        if (!knobOut) throw new Error('the stick knob did not follow the finger');
-        if (knob.style.transform) throw new Error('the knob did not return to the centre');
-        return `dragged right: moved ${moved.toFixed(1)}, top speed ${Math.max(...speeds).toFixed(1)}; touch device: ${touchCapable()}`;
-      });
+      await feelChecks({ check, until, wait });
       await check('The scene is lit, with a textured floor and a sky', async () => {
         const lights = scene.lights.length;
         if (lights < 3) throw new Error(`only ${lights} lights`);
