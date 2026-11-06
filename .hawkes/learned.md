@@ -1,1 +1,0 @@
-- convention: demo audio — example/audio.mjs makes all sound with Web Audio (no assets) and only after the first gesture; checks read audio.stats since a bot can't hear. Files in example/ used by the demo must also be copied in tools/demo.mjs.
