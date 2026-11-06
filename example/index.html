@@ -9,6 +9,9 @@
   canvas { width: 100%; height: 100%; display: block; touch-action: none; }
   #hud { position: fixed; left: 12px; top: 12px; background: rgba(0,0,0,.55); padding: 8px 12px; border-radius: 8px; line-height: 1.5; }
   #hud b { color: #9fe870; }
+  #mute { position: fixed; left: 12px; bottom: 12px; z-index: 5; font: inherit; color: #e8eaed; background: rgba(0,0,0,.55); border: 1px solid rgba(159,232,112,.55); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  #mute[aria-pressed="true"] { color: #9aa1ad; border-color: #55606e; }
+  #mute:focus-visible { outline: 2px solid #9fe870; outline-offset: 2px; }
   /* Touch joystick: shown on touch devices only (or with ?touch=1). */
   #stick { position: fixed; left: 28px; bottom: 28px; width: 140px; height: 140px; border-radius: 50%; display: none; touch-action: none; user-select: none; -webkit-user-select: none;
     background: rgba(14,17,22,.45); border: 2px solid rgba(159,232,112,.55); box-shadow: 0 0 18px rgba(159,232,112,.18); }
@@ -23,6 +26,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<button id="mute" type="button" aria-pressed="false" title="Mute or unmute all sound (M)">🔊 Sound on</button>
 <div id="stick" aria-label="Move joystick"><i></i></div>
 <div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice<br><small id="net"></small></div>
 <script type="module">
@@ -131,11 +135,22 @@
     t.material = tm;
   };
 
+  // Sound (audio.mjs): starts at the first click, key or touch, never before; the mute choice is remembered.
+  const { createAudio } = await import('./audio.mjs');
+  const audio = createAudio();
+  const muteBtn = document.getElementById('mute');
+  const showMute = (m) => { muteBtn.setAttribute('aria-pressed', String(m)); muteBtn.textContent = m ? '🔇 Sound off' : '🔊 Sound on'; };
+  showMute(audio.muted); audio.onMute(showMute);
+  muteBtn.addEventListener('click', () => audio.toggle());
+  muteBtn.addEventListener('keydown', (e) => e.stopPropagation());   // Space/Enter on the button must not also count as movement
+  addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'm' && !e.repeat) audio.toggle(); });
+
   const name = 'Player ' + Math.floor(Math.random() * 900 + 100);
   plate(name, me);
   const mp = multiplayer(scene, { babylon: B, project: q.get('project') || 'netdemo', endpoint, name, player: me, area: 'babylon-demo' });
   // The host spins the crate; everyone sees it.
   mp.share(crate, 'crate');
+  mp.onPresence((e) => { if (e.id === mp.lobby?.id) return; if (e.type === 'spawn') audio.chime(); else if (e.type === 'leave') audio.farewell(); });
   mp.when('status', ({ status }) => { document.getElementById('status').innerHTML = `<b>${status}</b> as ${name}`; });
 
   // ---- Controls: keys and a touch joystick feed one input vector; the player accelerates toward it and eases to a stop.
@@ -168,6 +183,7 @@
   if (touchCapable()) document.getElementById('hud').innerHTML = document.getElementById('hud').innerHTML.replace('WASD to move', 'stick to move');
 
   const vel = { x: 0, z: 0 };
+  let stride = 0;
   const motion = { speed: 0, camLag: 0 };        // read by the playtest checks
   scene.onBeforeRenderObservable.add(() => {
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
@@ -182,6 +198,8 @@
     if (dl <= rate) { vel.x = wx; vel.z = wz; } else { vel.x += (dvx / dl) * rate; vel.z += (dvz / dl) * rate; }
     me.position.x += vel.x * dt; me.position.z += vel.z * dt;
     const sp = Math.hypot(vel.x, vel.z); motion.speed = sp;
+    // A footstep every 1.4 units walked (a stride), so faster is quicker and standing still is silent.
+    if (sp > 0.5) { stride += sp * dt; if (stride >= 1.4) { stride -= 1.4; audio.footstep(); } } else stride = 0;
     if (sp > 0.2) {   // turn to face where it is going, easing round the shortest way
       const want = Math.atan2(vel.x, vel.z);
       let d = want - me.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -303,6 +321,55 @@
         bot.send('hn-emote', { e: 'wave' });
         await until(() => mp.presence.some((e) => e.type === 'emote' && e.id === bot.id) && armOn(mp.peers.get(bot.id)?.node), 5000, "a raised arm on the other player's avatar");
         return 'E waves here and there, an arm swings on the avatar';
+      });
+      // Sound: made with Web Audio after the first gesture; checks read the page's real audio state and click the real button.
+      await check('Audio starts only after the first user gesture', async () => {
+        const { createAudio } = await import('./audio.mjs');
+        const fresh = createAudio({ storageKey: 'hawkes-net-babylon:playtest-fresh' });   // a page that nobody has touched yet
+        try {
+          if (fresh.unlocked) throw new Error('sound started before any gesture');
+          if (fresh.chime() || fresh.stats.droppedBeforeGesture !== 1) throw new Error('a chime played before any gesture');
+          dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+          if (!fresh.unlocked) throw new Error('the first key press did not start the sound');
+        } finally { fresh.close(); try { localStorage.removeItem('hawkes-net-babylon:playtest-fresh'); } catch {} }
+        if (audio.stats.contextAt && audio.stats.contextAt < audio.stats.gestureAt) throw new Error('this page made its sound before a gesture');
+        return `nothing before a gesture; the first key press starts it (page sound: ${audio.state})`;
+      });
+      await check('Footsteps sound while walking, none while standing', async () => {
+        await until(() => motion.speed < 0.01, 5000, 'the player to stand still');
+        const still = audio.stats.steps; await wait(400);
+        if (audio.stats.steps !== still) throw new Error('footsteps while standing still');
+        const from = me.position.x; key('d', true);
+        await until(() => audio.stats.steps >= still + 2, 4000, 'footsteps while walking');
+        key('d', false);
+        await until(() => motion.speed < 0.01, 4000, 'the player to stop');
+        return `${audio.stats.steps - still} steps over ${(me.position.x - from).toFixed(1)} units`;
+      });
+      await check('A chime plays when another player joins', async () => {
+        const before = audio.stats.chimes;
+        const g = lobby({ project: q.get('project') || 'netdemo', transport: 'relay', ...(endpoint ? { endpoint } : {}), name: 'Chime guest', log: false });
+        g.join('babylon-demo');
+        try { await until(() => audio.stats.chimes > before, 15000, 'a chime for the joining player'); } finally { await g.leave(); }
+        return `chimed as ${g.name ?? 'the guest'} joined (${audio.stats.chimes} so far, sound ${audio.state})`;
+      });
+      await check('The mute button silences everything and is remembered', async () => {
+        const btn = document.getElementById('mute'), was = audio.muted;
+        if (was) btn.click();                              // start from sound on
+        await wait(100);
+        btn.click();                                       // a real click on the button
+        if (!audio.muted || btn.getAttribute('aria-pressed') !== 'true') throw new Error('the button did not mute');
+        await until(() => audio.level === null || audio.level < 0.01, 2000, 'the master volume to fall to zero');
+        const silent = audio.stats.silenced;
+        audio.chime(); audio.footstep();
+        if (audio.stats.silenced !== silent + 2) throw new Error('a sound played while muted');
+        const { createAudio } = await import('./audio.mjs');
+        const next = createAudio();                        // what a reload does: read the saved choice
+        const remembered = next.muted; next.close();
+        if (!remembered) throw new Error('the mute was not remembered');
+        btn.click();
+        if (audio.muted || localStorage.getItem('hawkes-net-babylon:muted') !== '0') throw new Error('unmute did not stick');
+        if (was) btn.click();                              // leave it as it was found
+        return `muted: volume 0, ${audio.stats.silenced - silent} sounds held back, saved for the next visit; unmuted again`;
       });
       await check('A leaving player fades out', async () => {
         if (!guest) throw new Error('no guest joined');

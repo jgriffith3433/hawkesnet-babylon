@@ -1,4 +1,4 @@
-1. Open the beta demo site on a computer. Hold D or W: the avatar speeds up, and the camera trails then catches up. Let go and both ease to a stop.
-2. Tap a few quick key presses and watch the avatar turn smoothly toward its direction.
-3. Open it on a phone (or add `?touch=1` to the address): a round joystick sits bottom left. Drag it and the avatar runs that way.
-4. Let go of the joystick: the knob snaps back and the avatar slows to a stop.
+1. Open the beta site. It is silent until you click or press a key; then a soft ambient bed fades in.
+2. Walk with WASD: you hear footsteps while moving, none when you stop.
+3. Open the page in a second tab: the first tab plays a chime when it joins (and a softer tone when it closes).
+4. Click "Sound on" (bottom left) or press M: everything goes silent. Reload: it is still muted.

@@ -1,8 +1,11 @@
-Demo now feels like a game (example/index.html only; the library itself is unchanged):
-- Movement accelerates (18 u/s²) up to 5 u/s and brakes (14 u/s²) when you let go, instead of moving at a fixed speed. Arrow keys work too, and the avatar turns smoothly to face where it's going.
-- The follow camera eases after the player every frame (frame-rate independent), so it trails while you run and settles when you stop. Before, it only moved while a key was held.
-- A touch joystick (bottom left, with a dead zone and a knob that follows the finger) appears on touch devices (or with `?touch=1`). Keys and stick feed the same input.
-- Playtest: the `smoke` scenario has three new checks (read from the page's real controls, driven by real key and pointer events): movement accelerates and decelerates, the camera follows with easing, and the joystick shows on touch devices and moves the player. The joystick check forces the stick visible first (a named setup shortcut) because the bot's browser isn't a touch device.
-- Checked: `npm test` passes (needs HAWKESNET pointing at a hawkesnet checkout; I used the read-only clone), `npm run build` passes, and the page script parses. I did not run the page in a browser, so the new checks haven't run live and their timing thresholds are untested. Please watch the first beta smoke run.
-- Left for later: a camera that looks ahead or drags/pinches on touch, and a jump/action button on the stick.
-- GPU: none needed, so no estimate.
+Sound for the demo (new `example/audio.mjs`, wired into `example/index.html`; the library itself is unchanged). All of it is made live with Web Audio, so nothing is generated or downloaded:
+- Footsteps: a dull thud with a little grit every 1.4 units walked (quicker when faster, silent when still).
+- Join chime: a bright rising two-note chime when another player joins; a softer falling pair when one leaves.
+- Ambient bed: dark wind that slowly swells under two quiet detuned fifths.
+- Mute button (bottom left, or press M): silences everything, shows its state, and is remembered across visits (localStorage).
+- Nothing is created or played until the first click, key press or touch; sounds asked for before then are dropped, not queued.
+- `tools/demo.mjs` now copies `audio.mjs` into `dist/`.
+- Playtest: the `smoke` scenario has four new checks (first-gesture start using a fresh audio instance, footsteps only while walking, chime when a guest joins, mute via a real click of the button and remembered by a new instance). The page counts sounds in `audio.stats`; the bot can't hear, so checks read what the page played and the master volume.
+- Checked: `npm test` passes (HAWKESNET pointed at the read-only hawkesnet clone), `npm run build` passes, the page script parses. I did not run it in a browser, so the new checks haven't run live. Please watch the first beta smoke run.
+- Left for later: other players' footsteps, spatial sound, a volume slider, designed (generated) sound effects and music.
+- GPU: none needed, so no estimate. Generated sound effects would cost cents each if J wants them.
