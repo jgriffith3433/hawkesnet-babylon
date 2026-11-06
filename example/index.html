@@ -8,6 +8,7 @@
   html, body { margin: 0; height: 100%; background: #0e1116; color: #e8eaed; font: 14px system-ui, sans-serif; overflow: hidden; }
   canvas { width: 100%; height: 100%; display: block; touch-action: none; }
   #hud { position: fixed; left: 12px; top: 12px; background: rgba(0,0,0,.55); padding: 8px 12px; border-radius: 8px; line-height: 1.5; }
+  #hud a { color: #9fe870; }
   #hud b { color: #9fe870; }
   #mute { position: fixed; left: 12px; bottom: 12px; z-index: 5; font: inherit; color: #e8eaed; background: rgba(0,0,0,.55); border: 1px solid rgba(159,232,112,.55); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
   #mute[aria-pressed="true"] { color: #9aa1ad; border-color: #55606e; }
@@ -28,7 +29,7 @@
 <canvas id="c"></canvas>
 <button id="mute" type="button" aria-pressed="false" title="Mute or unmute all sound (M)">🔊 Sound on</button>
 <div id="stick" aria-label="Move joystick"><i></i></div>
-<div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice<br><small id="net"></small></div>
+<div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice<br><small id="net"></small><br><a id="readme" href="https://github.com/jgriffith3433/hawkesnet-babylon#readme" target="_blank" rel="noopener">README: quickstart and API notes</a></div>
 <script type="module">
   // ?net=http://127.0.0.1:8786 tries a Hawkes Net on this machine (hawkesnet: npm run dev); ?project= your project.
   const q = new URLSearchParams(location.search);

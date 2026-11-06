@@ -12,6 +12,71 @@ npm install https://github.com/jgriffith3433/hawkesnet-babylon/archive/refs/tags
 (It brings `@hawkesgen/net` with it. Once they're on npm: `npm install @hawkesgen/net-babylon @babylonjs/core`.) On a staging
 site, set `globalThis.HAWKES_NET_ENDPOINT` to point the whole scene at another Hawkes Net.
 
+## Quickstart: a blank page, copy and paste
+
+Save this as `index.html`, serve the folder (`npx serve .`, or any static server: modules need http, not `file://`) and open
+it in two tabs. WASD moves the ball; the other tab shows it as a capsule with your name, played back smoothly. It joins the
+free test room of the `netdemo` project, so it needs no account and no key.
+
+```html
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html, body, canvas { margin: 0; width: 100%; height: 100%; display: block; background: #0e1116; }</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script type="importmap">
+{ "imports": {
+  "@hawkesgen/net": "https://net.hawkesgen.ai/sdk/hawkes-net@1.mjs",
+  "@hawkesgen/net-babylon": "https://cdn.jsdelivr.net/gh/jgriffith3433/hawkesnet-babylon@main/hawkes-net-babylon.mjs"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+  import { multiplayer } from '@hawkesgen/net-babylon';
+
+  const engine = new BABYLON.Engine(document.getElementById('c'), true);
+  const scene = new BABYLON.Scene(engine);
+  const camera = new BABYLON.ArcRotateCamera('cam', -Math.PI / 2, 1, 18, BABYLON.Vector3.Zero(), scene);
+  new BABYLON.HemisphericLight('sun', new BABYLON.Vector3(0.3, 1, 0.2), scene);
+  BABYLON.MeshBuilder.CreateGround('floor', { width: 30, height: 30 }, scene);
+
+  const me = BABYLON.MeshBuilder.CreateSphere('me', { diameter: 1 }, scene);
+  me.position.y = 0.5;
+  const keys = {};
+  addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+  addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+  const mp = multiplayer(scene, {
+    babylon: BABYLON,
+    project: 'netdemo',            // the free demo project; use your own from net.hawkesgen.ai
+    name: 'Player ' + Math.floor(Math.random() * 100),
+    player: me,                    // your place and heading go out about 20 times a second
+    area: 'quickstart',            // the shared room
+  });
+  mp.on('chat', (text, from) => console.log(from.name + ': ' + text));
+  mp.when('status', (s) => console.log('status', s));
+
+  engine.runRenderLoop(() => {
+    const dt = engine.getDeltaTime() / 1000;
+    me.position.x += ((keys.d ? 1 : 0) - (keys.a ? 1 : 0)) * 6 * dt;
+    me.position.z += ((keys.w ? 1 : 0) - (keys.s ? 1 : 0)) * 6 * dt;
+    scene.render();
+  });
+  addEventListener('resize', () => engine.resize());
+</script>
+</body>
+</html>
+```
+
+Press **E** to wave. In the console, `mp.send('chat', 'hi')` shows up in the other tab. For a bundler instead, install the
+package (above) and import from `@babylonjs/core`, `@hawkesgen/net-babylon`; the same code works with `babylon: BABYLON`
+from `import * as BABYLON from '@babylonjs/core'`. Pin a release in the page by replacing `@main` with a tag (`@v0.1.3`).
+
+### In your own game
+
 ```js
 import * as BABYLON from '@babylonjs/core';
 import { multiplayer } from '@hawkesgen/net-babylon';
@@ -20,7 +85,7 @@ const mp = multiplayer(scene, {
   babylon: BABYLON,
   project: 'my-game',            // your project at net.hawkesgen.ai
   name: 'Ada',
-  player: playerMesh,            // your place and heading go out about 20 times a second
+  player: playerMesh,
   liveHosts: ['mygame.com'],     // your site: the live rooms; anywhere else (localhost, a preview) the free test rooms
 });
 
@@ -31,18 +96,49 @@ const ball = mp.share(ballMesh, 'ball', { owner: 'claim' });
 ball.take();                     // the player who grabbed it simulates it now
 ```
 
-- **Avatars:** `avatar: (peer, BABYLON, scene) => node` draws others your way (default: a capsule in their color with
-  their name). `mp.peers` has everyone: `{ id, name, away, node }`.
-- **Presence:** a player who joins pops in (the avatar grows from small and faint, a green ring opens on the floor), one who
-  leaves fades out and rises, and pressing **E** waves (`emoteKeys: { e: 'wave' }`, `false` for none; `mp.emote('wave')` by
-  code): everyone sees a raised arm swing on that avatar. `mp.onPresence(fn)` / `mp.presence` give `spawn`, `leave` and
-  `emote` events; `playEmote(node, 'wave', BABYLON, scene)` puts the wave on any node.
-- **Rooms by area:** `area: 'level-1'`, `mp.join('level-2')`. Full rooms spill into the next shard; a lost connection
-  rejoins by itself (`mp.when('status', ...)`).
-- **In the background:** a hidden player's avatar is drawn faded; `background(fn)` (re-exported from the SDK) keeps your
-  game's step running while the tab is hidden, for games others wait on.
-- **Everything else** in the SDK is there: `mp.room` is a [`@hawkesgen/net`](https://www.npmjs.com/package/@hawkesgen/net)
-  room (express frames, synced state, the shared clock `mp.room.now()`).
+## API notes
+
+Everything below is exported from `@hawkesgen/net-babylon` (types in `hawkes-net-babylon.d.ts`). The default export is an
+object holding the same names.
+
+| Export | What it is |
+| --- | --- |
+| `multiplayer(scene, options)` | Starts multiplayer on a Babylon scene and returns a `Multiplayer` (below). |
+| `defaultAvatar(peer, BABYLON, scene)` | The default avatar: a capsule in the player's color with their name over it. Call it from your own `avatar` to extend it. |
+| `playEmote(node, 'wave', BABYLON, scene)` | Puts an emote (a swinging raised arm) on any node. Returns `{ kind, done, update(now), dispose() }`; `multiplayer()` drives its own, otherwise call `update(performance.now())` each frame. |
+| `background`, `inBackground` | Re-exported from `@hawkesgen/net`. `background(fn)` keeps `fn` running while the tab is hidden; `inBackground()` says whether it is. |
+| `VERSION` | This package's version string. |
+| `default` | `{ multiplayer, defaultAvatar, playEmote, background, inBackground, VERSION }`. |
+
+**`multiplayer(scene, options)`** takes the SDK's lobby options (`endpoint`, ...) plus:
+
+| Option | Meaning |
+| --- | --- |
+| `babylon` | The `BABYLON` namespace. Default `globalThis.BABYLON`; pass it when you import `@babylonjs/core`. |
+| `project` | Your Hawkes Net project (required). |
+| `name` | Your player's name, shown over the avatar. |
+| `area` | The shared room (default `'lobby'`). |
+| `liveHosts` | Your site(s): there players share the live rooms; anywhere else the free test rooms. |
+| `player` | The mesh or node whose place and heading are sent. Or give `getPose: () => ({ position, yaw?, extra? })`. |
+| `avatar` | `(peer, BABYLON, scene) => node`: how others look. |
+| `emoteKeys` | Key presses that emote (default `{ e: 'wave' }`, `false` for none). |
+
+An option given as `undefined` is ignored (the SDK's default stays).
+
+**The `Multiplayer` it returns**
+
+| Member | Meaning |
+| --- | --- |
+| `peers` | Everyone else, by id: `{ id, name, away, node }`. |
+| `room`, `lobby`, `ready`, `isHost` | The SDK's room (`mp.room.now()` is the shared clock), its lobby, whether you are in, whether you host. |
+| `send(kind, data?, opt?)` / `on(kind, fn)` | Messages to the room; `on` returns an off function. |
+| `when(event, fn)` | Lobby events, e.g. `'status'`, `'peer:join'`, `'peer:leave'`. |
+| `join(area)` | Move to another area's room. |
+| `share(node, id, { owner? })` | A moving thing everyone sees. `owner: 'host'` (default) or `'claim'`. Returns `{ take(), release(), mine() }`. |
+| `unshare(id)` | Stop sharing it. |
+| `emote('wave')` | Wave on your player (false inside a short cooldown). |
+| `onPresence(fn)`, `presence`, `leaving` | Join, leave and emote events (`spawn`, `leave`, `emote`), the last 50, and avatars fading out. |
+| `dispose()` | Leave and remove every avatar and hook. |
 
 **Try it with no install:** serve this folder (`node tools/serve.mjs`), open http://localhost:8796/example/ twice, move with
 WASD. It loads Babylon from its CDN and the SDK from net.hawkesgen.ai, and joins the demo project's test room.
