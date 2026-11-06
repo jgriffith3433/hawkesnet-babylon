@@ -23,6 +23,13 @@ const yawOf = (node) => {
   }
   return node.rotation?.y ?? 0;
 };
+const SPAWN_MS = 550;
+const LEAVE_MS = 600;
+const EMOTE_MS = 1500;
+const EMOTE_GAP_MS = 400;
+const EMOTES = ['wave'];
+const easeOutBack = (t) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
+const meshesOf = (node) => [node, ...node.getChildMeshes(false)].filter((m) => 'visibility' in m);
 const hue = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return (h % 360) / 360; };
 
 /** The default avatar: a capsule in the player's own color with their name over it. */
@@ -52,17 +59,47 @@ export function defaultAvatar(peer, B, scene) {
 }
 
 /**
+ * A short emote on any node: a wave is a raised arm that swings for a moment (and the hand glows in the player's color).
+ * Returns { update(now), done, dispose() }; multiplayer() drives it, or call update(performance.now()) each frame yourself.
+ */
+export function playEmote(node, kind, B, scene) {
+  const pivot = new B.TransformNode(`hn-emote-${kind}`, scene);
+  pivot.parent = node;
+  pivot.position.set(0.45, 1.45, 0);
+  const arm = B.MeshBuilder.CreateBox(`hn-emote-arm-${kind}`, { width: 0.14, height: 0.62, depth: 0.14 }, scene);
+  arm.parent = pivot; arm.position.y = 0.31; arm.isPickable = false;
+  const mat = new B.StandardMaterial(`hn-emote-mat-${kind}`, scene);
+  mat.diffuseColor = new B.Color3(1, 0.86, 0.55); mat.emissiveColor = new B.Color3(0.45, 0.38, 0.2);
+  arm.material = mat;
+  const t0 = performance.now();
+  const e = {
+    kind, done: false,
+    update(now) {
+      const t = now - t0;
+      if (t >= EMOTE_MS) return e.dispose();
+      // Arm up (ease in), swing side to side, then lower.
+      const up = Math.min(1, t / 200) * Math.min(1, (EMOTE_MS - t) / 200);
+      pivot.rotation.z = -(0.25 + up * 2.3) + Math.sin(t / 55) * 0.35 * up;
+    },
+    dispose() { if (e.done) return; e.done = true; arm.dispose(); pivot.dispose(); mat.dispose(); },
+  };
+  e.update(t0);
+  return e;
+}
+
+/**
  * Multiplayer for a Babylon scene. o: {
  *   babylon (the BABYLON namespace: import * as BABYLON from '@babylonjs/core', or the global build; default globalThis.BABYLON),
  *   project, name, area ('lobby'), liveHosts ([]), prefix, endpoint, transport ('relay'), key (servers and tests only),
  *   player (the mesh or node whose place and heading are yours; or getPose: () => ({ position: [x, y, z], yaw, extra })),
  *   avatar ((peer, BABYLON, scene) => a node: how others look; default a capsule with their name),
+ *   emoteKeys ({ e: 'wave' }: a key press that emotes, seen by everyone; false for none; mp.emote('wave') does it by code),
  *   ... any other lobby / join option }
  */
 export function multiplayer(scene, o = {}) {
   const B = o.babylon ?? globalThis.BABYLON;
   if (!B) throw new Error('hawkes-net-babylon: pass { babylon: BABYLON } (import * as BABYLON from "@babylonjs/core")');
-  const { babylon, area = 'lobby', player, getPose, avatar = defaultAvatar, ...rest } = o;
+  const { babylon, area = 'lobby', player, getPose, avatar = defaultAvatar, emoteKeys = { e: 'wave' }, ...rest } = o;
   // (An option given as undefined, `endpoint: q.get('net') || undefined`, must not override the SDK's default.)
   const join = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
   const lobby = makeLobby({ transport: 'relay', ...join });
@@ -70,6 +107,16 @@ export function multiplayer(scene, o = {}) {
   const shared = new Map(); // id -> { node, track, owner }
   const clock = () => (lobby.room ? lobby.room.now() : Date.now());
   let poseAt = 0;
+  const leaving = new Map(); // id -> { node, t0 }: avatars fading out
+  const emotes = new Set(); // playing emotes
+  const presence = []; // the last events: { type: 'spawn' | 'leave' | 'emote', id, name, emote?, at }
+  const presenceFns = new Set();
+  const note = (type, id, name, emote) => {
+    const ev = { type, id, name, ...(emote ? { emote } : {}), at: Date.now() };
+    presence.push(ev); if (presence.length > 50) presence.shift();
+    for (const f of [...presenceFns]) { try { f(ev); } catch { /* a listener's problem */ } }
+  };
+  let lastEmote = 0;
 
   const ensure = (id) => {
     let p = peers.get(id);
@@ -82,14 +129,39 @@ export function multiplayer(scene, o = {}) {
   };
   const setAway = (p) => {
     if (!p.node) return;
-    for (const m of [p.node, ...p.node.getChildMeshes(false)]) if ('visibility' in m) m.visibility = p.away ? AWAY_ALPHA : 1;
+    const f = p.spawnAt ? Math.min(1, (performance.now() - p.spawnAt) / SPAWN_MS) : 1;
+    for (const m of meshesOf(p.node)) m.visibility = (p.away ? AWAY_ALPHA : 1) * f;
   };
-  const drop = (id) => {
+  // A ring on the floor that opens out and fades where a player appears.
+  const ring = (at) => {
+    const m = B.MeshBuilder.CreateTorus('hn-spawn-ring', { diameter: 1, thickness: 0.08, tessellation: 32 }, scene);
+    m.position.set(at.x, 0.05, at.z); m.isPickable = false;
+    const mat = new B.StandardMaterial('hn-spawn-ringmat', scene);
+    mat.emissiveColor = new B.Color3(0.62, 0.91, 0.44); mat.disableLighting = true; mat.diffuseColor = B.Color3.Black();
+    m.material = mat;
+    return { m, mat, t0: performance.now() };
+  };
+  const rings = new Set();
+  const drop = (id, now = false) => {
     const p = peers.get(id);
     if (!p) return;
-    p.node?.dispose(false, true);
     peers.delete(id);
+    if (!p.node) return;
+    if (now) { p.node.dispose(false, true); return; }
+    leaving.set(id, { node: p.node, t0: performance.now(), name: p.name, base: meshesOf(p.node).map((m) => [m, m.visibility]) });
+    note('leave', id, p.name);
   };
+  const spawn = (p) => {
+    p.node = avatar({ id: p.id, name: p.name }, B, scene);
+    p.spawnAt = performance.now();
+    p.baseScale = p.node.scaling ? p.node.scaling.clone() : null;
+    setAway(p);
+    if (p.node.scaling) p.node.scaling.scaleInPlace(0.01);
+    const pos = p.track.sample(clock());
+    rings.add(ring(pos ? { x: pos[0], z: pos[2] } : p.node.position));
+    note('spawn', p.id, p.name);
+  };
+  const emote = (node, kind) => { if (node) emotes.add(playEmote(node, kind, B, scene)); };
 
   const offs = [
     lobby.onPose((id, s, at) => {
@@ -97,12 +169,19 @@ export function multiplayer(scene, o = {}) {
       const p = ensure(id);
       p.track.push(at, [s.p[0], s.p[1], s.p[2], s.y ?? 0], id);
       p.extra = s;
-      if (!p.node) { p.node = avatar({ id, name: p.name }, B, scene); setAway(p); }
+      if (!p.node) spawn(p);
     }),
     lobby.when('peer:join', (peer) => { const p = ensure(peer.id); p.name = peer.name ?? p.name; }),
     lobby.when('peer:leave', ({ peer }) => drop(peer.id)),
     lobby.when('peer:away', ({ peer, away }) => { const p = peers.get(peer.id); if (p) { p.away = away; setAway(p); } }),
-    lobby.when('left', () => { for (const id of [...peers.keys()]) drop(id); }),
+    lobby.when('left', () => { for (const id of [...peers.keys()]) drop(id, true); }),
+    lobby.on('hn-emote', (d, from) => {
+      const kind = EMOTES.includes(d?.e) ? d.e : null;
+      const p = from?.id ? peers.get(from.id) : null;
+      if (!kind || !p?.node) return;
+      emote(p.node, kind);
+      note('emote', p.id, p.name, kind);
+    }),
   ];
   // Shared things: whoever simulates one says where it is; everyone else plays it back.
   let thingOff = null;
@@ -129,8 +208,26 @@ export function multiplayer(scene, o = {}) {
         lobby.pose([w.x, w.y, w.z], yawOf(player), null);
       }
     }
+    const perf = performance.now();
+    for (const [id, l] of leaving) {
+      const t = (perf - l.t0) / LEAVE_MS;
+      if (t >= 1) { l.node.dispose(false, true); leaving.delete(id); continue; }
+      for (const [m, v] of l.base) m.visibility = v * (1 - t);
+      l.node.position.y += 0.012;
+    }
+    for (const r of [...rings]) {
+      const t = (perf - r.t0) / 700;
+      if (t >= 1) { r.m.dispose(); r.mat.dispose(); rings.delete(r); continue; }
+      r.m.scaling.setAll(0.6 + 2.4 * t); r.mat.alpha = 1 - t;
+    }
+    for (const e of [...emotes]) { e.update(perf); if (e.done) emotes.delete(e); }
     for (const p of peers.values()) {
       if (!p.node) continue;
+      if (p.spawnAt) {
+        const t = (perf - p.spawnAt) / SPAWN_MS;
+        if (t >= 1) { p.spawnAt = 0; if (p.baseScale && p.node.scaling) p.node.scaling.copyFrom(p.baseScale); setAway(p); }
+        else if (p.node.scaling && p.baseScale) { p.node.scaling.copyFrom(p.baseScale).scaleInPlace(Math.max(0.01, easeOutBack(t))); setAway(p); }
+      }
       const v = p.track.sample(now);
       if (!v) continue;
       p.node.position.set(v[0], v[1], v[2]);
@@ -156,10 +253,34 @@ export function multiplayer(scene, o = {}) {
     }
   });
 
+  const doEmote = (kind = 'wave') => {
+    if (!EMOTES.includes(kind) || performance.now() - lastEmote < EMOTE_GAP_MS) return false;
+    lastEmote = performance.now();
+    if (player) emote(player, kind);
+    lobby.send('hn-emote', { e: kind });
+    note('emote', lobby.id ?? 'me', o.name ?? '', kind);
+    return true;
+  };
+  const onKey = (ev) => {
+    const kind = emoteKeys && emoteKeys[String(ev.key).toLowerCase()];
+    const t = ev.target;
+    if (!kind || ev.repeat || ev.ctrlKey || ev.metaKey || ev.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
+    doEmote(kind);
+  };
+  if (emoteKeys && typeof addEventListener === 'function') addEventListener('keydown', onKey);
+
   lobby.join(area);
 
   return {
     lobby,
+    /** Play an emote ('wave') on your player; everyone else sees it on your avatar. False inside the short cooldown. */
+    emote: doEmote,
+    /** fn({ type: 'spawn' | 'leave' | 'emote', id, name, emote?, at }) as players pop in, fade out and wave (yours too). Returns off(). */
+    onPresence: (fn) => { presenceFns.add(fn); return () => presenceFns.delete(fn); },
+    /** The last 50 presence events. */
+    presence,
+    /** Avatars fading out right now: id -> { node }. */
+    leaving,
     /** Everyone else: id -> { id, name, away, node }. */
     peers,
     get room() { return lobby.room; },
@@ -172,7 +293,7 @@ export function multiplayer(scene, o = {}) {
     /** status, joined, left, peer:join, peer:leave, peer:away, away, host, problem. Returns off(). */
     when: (event, fn) => lobby.when(event, fn),
     /** Move to another area's room (the avatars are rebuilt from the new room's poses). */
-    join: (a) => { for (const id of [...peers.keys()]) drop(id); lobby.join(a); },
+    join: (a) => { for (const id of [...peers.keys()]) drop(id, true); lobby.join(a); },
     /** A moving thing everyone sees: o.owner 'host' (default: the host simulates it, and the next host takes over) or
      *  'claim' (whoever calls take(id) simulates it, e.g. the player who grabbed it). */
     share(node, id, so = {}) {
@@ -185,11 +306,17 @@ export function multiplayer(scene, o = {}) {
       scene.onBeforeRenderObservable.remove(tick);
       for (const off of offs) off();
       thingOff?.();
-      for (const id of [...peers.keys()]) drop(id);
+      if (emoteKeys && typeof removeEventListener === 'function') removeEventListener('keydown', onKey);
+      for (const id of [...peers.keys()]) drop(id, true);
+      for (const l of leaving.values()) l.node.dispose(false, true);
+      leaving.clear();
+      for (const e of emotes) e.dispose();
+      for (const r of rings) { r.m.dispose(); r.mat.dispose(); }
+      rings.clear();
       shared.clear();
       lobby.leave();
     },
   };
 }
 
-export default { multiplayer, defaultAvatar, background, inBackground, VERSION };
+export default { multiplayer, defaultAvatar, playEmote, background, inBackground, VERSION };

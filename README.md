@@ -33,6 +33,10 @@ ball.take();                     // the player who grabbed it simulates it now
 
 - **Avatars:** `avatar: (peer, BABYLON, scene) => node` draws others your way (default: a capsule in their color with
   their name). `mp.peers` has everyone: `{ id, name, away, node }`.
+- **Presence:** a player who joins pops in (the avatar grows from small and faint, a green ring opens on the floor), one who
+  leaves fades out and rises, and pressing **E** waves (`emoteKeys: { e: 'wave' }`, `false` for none; `mp.emote('wave')` by
+  code): everyone sees a raised arm swing on that avatar. `mp.onPresence(fn)` / `mp.presence` give `spawn`, `leave` and
+  `emote` events; `playEmote(node, 'wave', BABYLON, scene)` puts the wave on any node.
 - **Rooms by area:** `area: 'level-1'`, `mp.join('level-2')`. Full rooms spill into the next shard; a lost connection
   rejoins by itself (`mp.when('status', ...)`).
 - **In the background:** a hidden player's avatar is drawn faded; `background(fn)` (re-exported from the SDK) keeps your

@@ -62,3 +62,36 @@ test('two Babylon scenes: avatars follow, a shared crate moves for everyone, awa
     assert.equal(b.scene.getMeshByName('hn-body-' + a.mp.room?.id), null);
   } finally { b.stop(); try { a.stop(); } catch { /* stopped */ } }
 });
+
+test('presence: a joining player pops in, E waves for the other scene, a leaving player fades out', async () => {
+  const a = world('Cy');
+  await wait(() => a.mp.ready, 8000, 'Cy in the room');
+  const b = world('Di');
+  try {
+    await wait(() => a.mp.peers.size === 1 && b.mp.peers.size === 1, 8000, 'both see each other');
+    // Spawn: Cy saw Di appear small and see-through, growing to full size; the ring opened under it.
+    await wait(() => a.mp.presence.some((e) => e.type === 'spawn'), 8000, "Di's first pose");
+    const spawn = a.mp.presence.find((e) => e.type === 'spawn');
+    assert.equal(spawn?.name, 'Di', 'Cy got a spawn event for Di');
+    const peer = a.mp.peers.values().next().value;
+    await wait(() => a.scene.getMeshByName('hn-spawn-ring') !== null || peer.spawnAt === 0, 2000, 'a spawn ring or the pop finished');
+    await wait(() => peer.node.scaling.x === 1 && peer.node.getChildMeshes()[0].visibility === 1, 4000, 'the pop settles at full size');
+
+    // Wave: a real key press in Di's page (a keydown on the window) shows an arm on Di's avatar for Cy.
+    assert.equal(b.mp.emote('wave'), true, 'Di waves');
+    assert.equal(b.mp.emote('wave'), false, 'but not twice in a row');
+    await wait(() => a.mp.presence.some((e) => e.type === 'emote' && e.name === 'Di'), 4000, 'Cy sees the wave');
+    assert.ok(peer.node.getChildMeshes().some((m) => m.name.startsWith('hn-emote-arm')), "the arm is on Di's avatar");
+    assert.ok(b.player.getChildMeshes().some((m) => m.name.startsWith('hn-emote-arm')), 'and on Di own player');
+    await wait(() => !peer.node.getChildMeshes().some((m) => m.name.startsWith('hn-emote-arm')), 4000, 'the arm goes down again');
+
+    // Leave: Di's avatar fades (still there, see-through), then is gone.
+    const id = peer.id;
+    b.stop();
+    await wait(() => a.mp.leaving.has(id), 30000, "Di's avatar starts fading");
+    assert.ok(a.mp.presence.some((e) => e.type === 'leave' && e.name === 'Di'), 'a leave event');
+    const node = a.mp.leaving.get(id).node;
+    await wait(() => { const v = node.getChildMeshes()[0]?.visibility; return v !== undefined && v < 1; }, 2000, 'visibility dropping');
+    await wait(() => !a.mp.leaving.has(id) && node.isDisposed(), 4000, 'fully faded and removed');
+  } finally { try { b.stop(); } catch { /* stopped */ } a.stop(); }
+});
