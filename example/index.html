@@ -9,6 +9,10 @@
   canvas { width: 100%; height: 100%; display: block; touch-action: none; }
   #hud { position: fixed; left: 12px; top: 12px; background: rgba(0,0,0,.55); padding: 8px 12px; border-radius: 8px; line-height: 1.5; }
   #hud b { color: #9fe870; }
+  /* Touch joystick: shown on touch devices only (or with ?touch=1). */
+  #stick { position: fixed; left: 28px; bottom: 28px; width: 140px; height: 140px; border-radius: 50%; display: none; touch-action: none; user-select: none; -webkit-user-select: none;
+    background: rgba(14,17,22,.45); border: 2px solid rgba(159,232,112,.55); box-shadow: 0 0 18px rgba(159,232,112,.18); }
+  #stick i { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; background: rgba(159,232,112,.7); border: 2px solid #9fe870; pointer-events: none; }
 </style>
 <!-- No install: Babylon from its CDN, the SDK from net.hawkesgen.ai, this module from the page's folder. With npm,
      import from '@babylonjs/core', '@hawkesgen/net' and '@hawkesgen/net-babylon' instead. -->
@@ -19,6 +23,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="stick" aria-label="Move joystick"><i></i></div>
 <div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice<br><small id="net"></small></div>
 <script type="module">
   // ?net=http://127.0.0.1:8786 tries a Hawkes Net on this machine (hawkesnet: npm run dev); ?project= your project.
@@ -133,14 +138,59 @@
   mp.share(crate, 'crate');
   mp.when('status', ({ status }) => { document.getElementById('status').innerHTML = `<b>${status}</b> as ${name}`; });
 
+  // ---- Controls: keys and a touch joystick feed one input vector; the player accelerates toward it and eases to a stop.
   const keys = {};
   addEventListener('keydown', (e) => (keys[e.key.toLowerCase()] = true));
   addEventListener('keyup', (e) => (keys[e.key.toLowerCase()] = false));
+  addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+  const MAX_SPEED = 5, ACCEL = 18, DECEL = 14;   // units/s, units/s²
+  const FOLLOW = 4;                              // camera follow rate: higher is tighter
+  const touchCapable = () => q.get('touch') === '1' || (navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+  const stick = document.getElementById('stick'), knob = stick.firstElementChild;
+  const joy = { x: 0, y: 0, id: null };          // y up is positive
+  const joyMove = (e) => {
+    const r = stick.getBoundingClientRect(), R = r.width / 2;
+    let dx = e.clientX - (r.left + R), dy = e.clientY - (r.top + R);
+    const len = Math.hypot(dx, dy), lim = R - 10;
+    if (len > lim) { dx *= lim / len; dy *= lim / len; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    // A small dead zone, then full range at the rim.
+    const m = Math.min(1, len / lim), k = m < 0.12 ? 0 : (m - 0.12) / 0.88;
+    joy.x = len ? (dx / len) * k : 0; joy.y = len ? (-dy / len) * k : 0;
+  };
+  const joyEnd = (e) => { if (e.pointerId !== joy.id) return; joy.id = null; joy.x = joy.y = 0; knob.style.transform = ''; };
+  stick.addEventListener('pointerdown', (e) => { if (joy.id !== null) return; joy.id = e.pointerId; try { stick.setPointerCapture(e.pointerId); } catch {} joyMove(e); e.preventDefault(); });
+  stick.addEventListener('pointermove', (e) => { if (e.pointerId === joy.id) joyMove(e); });
+  stick.addEventListener('pointerup', joyEnd); stick.addEventListener('pointercancel', joyEnd);
+  const showStick = (on = true) => { stick.style.display = on ? 'block' : 'none'; };
+  showStick(touchCapable());
+  if (touchCapable()) document.getElementById('hud').innerHTML = document.getElementById('hud').innerHTML.replace('WASD to move', 'stick to move');
+
+  const vel = { x: 0, z: 0 };
+  const motion = { speed: 0, camLag: 0 };        // read by the playtest checks
   scene.onBeforeRenderObservable.add(() => {
-    const dt = engine.getDeltaTime() / 1000;
-    const dx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), dz = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
-    if (dx || dz) { me.position.x += dx * 5 * dt; me.position.z += dz * 5 * dt; me.rotation.y = Math.atan2(dx, dz);
-      cam.target.x += (me.position.x - cam.target.x) * Math.min(1, dt * 4); cam.target.z += (me.position.z - cam.target.z) * Math.min(1, dt * 4); }
+    const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
+    let ix = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0) + joy.x;
+    let iz = (keys.w || keys.arrowup ? 1 : 0) - (keys.s || keys.arrowdown ? 1 : 0) + joy.y;
+    const il = Math.hypot(ix, iz);
+    if (il > 1) { ix /= il; iz /= il; }
+    // Accelerate toward the wanted velocity; brake (a little softer than a stop on a dime) when there is no input.
+    const wx = ix * MAX_SPEED, wz = iz * MAX_SPEED;
+    const dvx = wx - vel.x, dvz = wz - vel.z, dl = Math.hypot(dvx, dvz);
+    const rate = (il > 0 ? ACCEL : DECEL) * dt;
+    if (dl <= rate) { vel.x = wx; vel.z = wz; } else { vel.x += (dvx / dl) * rate; vel.z += (dvz / dl) * rate; }
+    me.position.x += vel.x * dt; me.position.z += vel.z * dt;
+    const sp = Math.hypot(vel.x, vel.z); motion.speed = sp;
+    if (sp > 0.2) {   // turn to face where it is going, easing round the shortest way
+      const want = Math.atan2(vel.x, vel.z);
+      let d = want - me.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
+      me.rotation.y += d * (1 - Math.exp(-dt * 12));
+    }
+    // The camera eases after the player every frame (frame-rate independent), so it trails when moving and settles when stopped.
+    const f = 1 - Math.exp(-dt * FOLLOW);
+    cam.target.x += (me.position.x - cam.target.x) * f; cam.target.z += (me.position.z - cam.target.z) * f;
+    motion.camLag = Math.hypot(me.position.x - cam.target.x, me.position.z - cam.target.z);
     if (mp.room?.sync.mine('crate')) crate.rotation.y += dt;
   });
   // Studio's playtest bot (net-playtest.mjs): a second player in this page, this capsule moved by real WASD input.
@@ -162,7 +212,57 @@
     botPose: (u) => [-4 + 8 * u, 0, -4],
     tolerance: 0.3,
     // Criteria checks on the look of the scene, run in the smoke scenario while the second player is in the room.
-    extra: async ({ check, main, bot, until }) => {
+    extra: async ({ check, main, bot, until, wait }) => {
+      // Feel: real key and pointer input; the numbers are read from the controls the page really runs.
+      const sample = async (ms, f) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { f(); await wait(16); } f(); };
+      await check('Movement accelerates and decelerates', async () => {
+        await until(() => motion.speed < 0.01, 5000, 'the player to be standing still');
+        const up = [], down = [];
+        key('d', true);
+        await sample(1000, () => up.push(motion.speed));
+        const top = Math.max(...up);
+        key('d', false);
+        await sample(900, () => down.push(motion.speed));
+        const early = up.find((v) => v > 0);
+        if (!(early < MAX_SPEED * 0.6)) throw new Error(`jumped straight to speed ${early?.toFixed(2)}`);
+        if (top < MAX_SPEED * 0.9) throw new Error(`never reached full speed (${top.toFixed(2)})`);
+        const slow = down.find((v) => v < top * 0.9 && v > 0.05);
+        if (slow === undefined) throw new Error('stopped dead the moment the key was released');
+        if (motion.speed > 0.01) throw new Error(`still sliding at ${motion.speed.toFixed(2)}`);
+        return `0 to ${top.toFixed(1)} over ${up.findIndex((v) => v >= top * 0.99) * 16} ms, braked to a stop`;
+      });
+      await check('The camera follows with easing', async () => {
+        await until(() => motion.speed < 0.01 && motion.camLag < 0.05, 6000, 'the camera to settle on the player');
+        const lag = [];
+        key('w', true);
+        await sample(900, () => lag.push(motion.camLag));
+        key('w', false);
+        const peak = Math.max(...lag);
+        if (peak < 0.3) throw new Error(`the camera stuck to the player (trailed by only ${peak.toFixed(2)})`);
+        if (lag[0] > peak * 0.5) throw new Error('the camera jumped rather than eased');
+        const ms = await until(() => motion.camLag < 0.05, 5000, () => `the camera to catch up (still ${motion.camLag.toFixed(2)} behind)`);
+        if (ms < 100) throw new Error('the camera snapped to the player instead of easing in');
+        return `trailed ${peak.toFixed(1)} units, settled in ${Math.round(ms)} ms`;
+      });
+      await check('A touch joystick shows on touch devices and moves the player', async () => {
+        const was = stick.style.display;
+        if (touchCapable() !== (was === 'block')) throw new Error(`joystick display is ${was} but touch is ${touchCapable()}`);
+        showStick(true);   // setup shortcut: this bot's browser may not be a touch device
+        await until(() => motion.speed < 0.01, 5000, 'the player to stand still');
+        const r = stick.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const ev = (type, x, y) => stick.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true, cancelable: true, clientX: x, clientY: y }));
+        const from = me.position.clone(), speeds = [];
+        ev('pointerdown', cx, cy); ev('pointermove', cx + r.width / 2, cy);
+        await sample(800, () => speeds.push(motion.speed));
+        const moved = me.position.x - from.x, knobOut = knob.style.transform;
+        ev('pointerup', cx, cy);
+        await until(() => motion.speed < 0.01, 4000, 'the player to stop after the stick was let go');
+        showStick(was === 'block');
+        if (moved < 1.5) throw new Error(`dragging the stick moved the player only ${moved.toFixed(2)}`);
+        if (!knobOut) throw new Error('the stick knob did not follow the finger');
+        if (knob.style.transform) throw new Error('the knob did not return to the centre');
+        return `dragged right: moved ${moved.toFixed(1)}, top speed ${Math.max(...speeds).toFixed(1)}; touch device: ${touchCapable()}`;
+      });
       await check('The scene is lit, with a textured floor and a sky', async () => {
         const lights = scene.lights.length;
         if (lights < 3) throw new Error(`only ${lights} lights`);

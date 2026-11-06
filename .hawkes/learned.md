@@ -1,0 +1,1 @@
+- lesson: npm test needs HAWKESNET — it defaults to ../hawkesnet, which isn't there in agent worktrees; use HAWKESNET=<path to the hawkesnet clone>.
