@@ -160,6 +160,7 @@
   addEventListener('keyup', (e) => (keys[e.key.toLowerCase()] = false));
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
+  const EDGE = 17.4;   // how far from the centre the player may walk: the floor's edge (18) less the capsule
   const MAX_SPEED = 5, ACCEL = 18, DECEL = 14;   // units/s, units/s²
   const FOLLOW = 4;                              // camera follow rate: higher is tighter
   let pretendTouch = false;                      // set only by the playtest's named setup option {touch:true}
@@ -199,6 +200,9 @@
     const rate = (il > 0 ? ACCEL : DECEL) * dt;
     if (dl <= rate) { vel.x = wx; vel.z = wz; } else { vel.x += (dvx / dl) * rate; vel.z += (dvz / dl) * rate; }
     me.position.x += vel.x * dt; me.position.z += vel.z * dt;
+    // Stay on the floor (36 x 36): stop at the edge instead of walking out over the water.
+    if (Math.abs(me.position.x) > EDGE) { me.position.x = Math.sign(me.position.x) * EDGE; vel.x = 0; }
+    if (Math.abs(me.position.z) > EDGE) { me.position.z = Math.sign(me.position.z) * EDGE; vel.z = 0; }
     const sp = Math.hypot(vel.x, vel.z); motion.speed = sp;
     // A footstep every 1.4 units walked (a stride), so faster is quicker and standing still is silent.
     if (sp > 0.5) { stride += sp * dt; if (stride >= 1.4) { stride -= 1.4; audio.footstep(); } } else stride = 0;
