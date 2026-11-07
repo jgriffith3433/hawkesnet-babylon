@@ -73,7 +73,7 @@ free test room of the `netdemo` project, so it needs no account and no key.
 
 Press **E** to wave. In the console, `mp.send('chat', 'hi')` shows up in the other tab. For a bundler instead, install the
 package (above) and import from `@babylonjs/core`, `@hawkesgen/net-babylon`; the same code works with `babylon: BABYLON`
-from `import * as BABYLON from '@babylonjs/core'`. Pin a release in the page by replacing `@main` with a tag (`@v0.1.3`).
+from `import * as BABYLON from '@babylonjs/core'`. Pin a release in the page by replacing `@main` with a tag (`@v0.2.0`).
 
 ### In your own game
 
