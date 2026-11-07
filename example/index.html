@@ -29,14 +29,15 @@
 <canvas id="c"></canvas>
 <button id="mute" type="button" aria-pressed="false" title="Mute or unmute all sound (M)">🔊 Sound on</button>
 <div id="stick" aria-label="Move joystick"><i></i></div>
-<div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice<br><small id="net"></small><br><a id="readme" href="https://github.com/jgriffith3433/hawkesnet-babylon#readme" target="_blank" rel="noopener">README: quickstart and API notes</a></div>
+<div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice<br><small id="net"></small> · <small id="ver"></small><br><a id="readme" href="https://github.com/jgriffith3433/hawkesnet-babylon#readme" target="_blank" rel="noopener">README: quickstart and API notes</a></div>
 <script type="module">
   // ?net=http://127.0.0.1:8786 tries a Hawkes Net on this machine (hawkesnet: npm run dev); ?project= your project.
   const q = new URLSearchParams(location.search);
   const endpoint = q.get('net') || undefined;
   // On a Studio beta site the page names beta Hawkes Net (window.HAWKES_NET_ENDPOINT); anywhere else the live one.
   document.getElementById('net').textContent = 'on ' + (endpoint || globalThis.HAWKES_NET_ENDPOINT || 'https://net.hawkesgen.ai').replace(/^https?:\/\//, '');
-  const { multiplayer } = await import('../hawkes-net-babylon.mjs');
+  const { multiplayer, VERSION } = await import('../hawkes-net-babylon.mjs');
+  document.getElementById('ver').textContent = 'v' + VERSION;
   const B = window.BABYLON;
   const engine = new B.Engine(document.getElementById('c'), true);
   const scene = new B.Scene(engine);
@@ -312,6 +313,11 @@
       // Same named setup as the feel scenario: the page is set up as a touch device, so the stick shows before it is dragged.
       if (options.touch !== false) { pretendTouch = true; showStick(touchCapable()); event?.('touch-device', 'setup: page set up as a touch device'); }
       await feelChecks({ check, until, wait, event: event || (() => {}) });
+      await check('The info panel shows the package version', async () => {
+        const shown = document.getElementById('ver')?.textContent || '';
+        if (shown !== 'v' + VERSION) throw new Error(`panel says "${shown}", package is v${VERSION}`);
+        return `info panel shows ${shown}`;
+      });
       await check('The scene is lit, with a textured floor and a sky', async () => {
         const lights = scene.lights.length;
         if (lights < 3) throw new Error(`only ${lights} lights`);

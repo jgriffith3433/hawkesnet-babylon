@@ -12,7 +12,7 @@
 import { lobby as makeLobby, background, inBackground, Track } from '@hawkesgen/net';
 
 export { background, inBackground };
-export const VERSION = '0.1.3';
+export const VERSION = '0.2.0';
 
 const POSE_MS = 50;
 const AWAY_ALPHA = 0.35;
