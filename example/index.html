@@ -370,11 +370,12 @@
         await until(() => motion.speed < 0.01, 5000, 'the player to stand still');
         const still = audio.stats.steps; await wait(400);
         if (audio.stats.steps !== still) throw new Error('footsteps while standing still');
-        const from = me.position.x; key('d', true);
+        const from = me.position.x, dir = from > 0 ? 'a' : 'd';   // walk away from the floor's edge (a wall stops the player, silently)
+        key(dir, true);
         await until(() => audio.stats.steps >= still + 2, 4000, 'footsteps while walking');
-        key('d', false);
+        key(dir, false);
         await until(() => motion.speed < 0.01, 4000, 'the player to stop');
-        return `${audio.stats.steps - still} steps over ${(me.position.x - from).toFixed(1)} units`;
+        return `${audio.stats.steps - still} steps over ${Math.abs(me.position.x - from).toFixed(1)} units`;
       });
       await check('A chime plays when another player joins', async () => {
         const before = audio.stats.chimes;
