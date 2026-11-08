@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Hawkes Net + Babylon.js</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0e1116; color: #e8eaed; font: 14px system-ui, sans-serif; overflow: hidden; }
   canvas { width: 100%; height: 100%; display: block; touch-action: none; }
   #hud { position: fixed; left: 12px; top: 12px; background: rgba(0,0,0,.55); padding: 8px 12px; border-radius: 8px; line-height: 1.5; }
   #hud a { color: #9fe870; }
+  #hud .short, #hud .chev { display: none; }
+  #hud .line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #hud b { color: #9fe870; }
   #mute { position: fixed; left: 12px; bottom: 12px; z-index: 5; font: inherit; color: #e8eaed; background: rgba(0,0,0,.55); border: 1px solid rgba(159,232,112,.55); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
   #mute[aria-pressed="true"] { color: #9aa1ad; border-color: #55606e; }
@@ -17,6 +19,17 @@
   #stick { position: fixed; left: 28px; bottom: 28px; width: 140px; height: 140px; border-radius: 50%; display: none; touch-action: none; user-select: none; -webkit-user-select: none;
     background: rgba(14,17,22,.45); border: 2px solid rgba(159,232,112,.55); box-shadow: 0 0 18px rgba(159,232,112,.18); }
   #stick i { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; background: rgba(159,232,112,.7); border: 2px solid #9fe870; pointer-events: none; }
+  /* Touch or narrow screens (body.compact, set by the page): the Sound button moves to the bottom-right, away from the joystick;
+     the info panel is one line (title short, status) that a tap opens; everything stays inside the safe area. Desktop is unchanged. */
+  body.compact #hud { left: max(12px, env(safe-area-inset-left)); top: max(12px, env(safe-area-inset-top)); max-width: calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); box-sizing: border-box; cursor: pointer; padding: 6px 10px; line-height: 1.4; }
+  body.compact #hud .long { display: none; }
+  body.compact #hud .short, body.compact #hud .chev { display: inline; }
+  body.compact #hud .chev { color: #9fe870; margin-left: 6px; }
+  body.compact #hud .more { display: none; margin-top: 4px; }
+  body.compact #hud.open .more { display: block; }
+  body.compact #hud.open .chev { display: none; }
+  body.compact #mute { left: auto; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); }
+  body.compact #stick { left: max(28px, env(safe-area-inset-left)); bottom: max(28px, env(safe-area-inset-bottom)); }
 </style>
 <!-- No install: Babylon from its CDN, the SDK from net.hawkesgen.ai, this module from the page's folder. With npm,
      import from '@babylonjs/core', '@hawkesgen/net' and '@hawkesgen/net-babylon' instead. -->
@@ -29,7 +42,7 @@
 <canvas id="c"></canvas>
 <button id="mute" type="button" aria-pressed="false" title="Mute or unmute all sound (M)">🔊 Sound on</button>
 <div id="stick" aria-label="Move joystick"><i></i></div>
-<div id="hud">Hawkes Net + Babylon.js · <span id="status">connecting…</span><br>WASD to move · open this page twice<br><small id="net"></small> · <small id="ver"></small><br><a id="readme" href="https://github.com/jgriffith3433/hawkesnet-babylon#readme" target="_blank" rel="noopener">README: quickstart and API notes</a></div>
+<div id="hud"><div class="line"><b class="long">Hawkes Net + Babylon.js</b><b class="short">Hawkes Net</b> · <span id="status">connecting…</span><span class="chev" aria-hidden="true">▾</span></div><div class="more"><span id="how">WASD to move</span> · open this page twice<br><small id="net"></small> · <small id="ver"></small><br><a id="readme" href="https://github.com/jgriffith3433/hawkesnet-babylon#readme" target="_blank" rel="noopener">README: quickstart and API notes</a></div></div>
 <script type="module">
   // ?net=http://127.0.0.1:8786 tries a Hawkes Net on this machine (hawkesnet: npm run dev); ?project= your project.
   const q = new URLSearchParams(location.search);
@@ -166,6 +179,7 @@
   const FOLLOW = 4;                              // camera follow rate: higher is tighter
   let pretendTouch = false;                      // set only by the playtest's named setup option {touch:true}
   const touchCapable = () => pretendTouch || q.get('touch') === '1' || (navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+  const layout = () => { document.body.classList.toggle('compact', touchCapable() || matchMedia('(max-width: 640px)').matches); };
   const stick = document.getElementById('stick'), knob = stick.firstElementChild;
   const joy = { x: 0, y: 0, id: null };          // y up is positive
   const joyMove = (e) => {
@@ -182,9 +196,13 @@
   stick.addEventListener('pointerdown', (e) => { if (joy.id !== null) return; joy.id = e.pointerId; try { stick.setPointerCapture(e.pointerId); } catch {} joyMove(e); e.preventDefault(); });
   stick.addEventListener('pointermove', (e) => { if (e.pointerId === joy.id) joyMove(e); });
   stick.addEventListener('pointerup', joyEnd); stick.addEventListener('pointercancel', joyEnd);
-  const showStick = (on = true) => { stick.style.display = on ? 'block' : 'none'; };
+  const showStick = (on = true) => { stick.style.display = on ? 'block' : 'none'; layout(); };
   showStick(touchCapable());
-  if (touchCapable()) document.getElementById('hud').innerHTML = document.getElementById('hud').innerHTML.replace('WASD to move', 'stick to move');
+  const hud = document.getElementById('hud');
+  if (touchCapable()) document.getElementById('how').textContent = 'stick to move';
+  // Compact layout: touch devices and narrow screens. A tap on the panel opens or closes the full info.
+  layout(); addEventListener('resize', layout);
+  hud.addEventListener('click', (e) => { if (document.body.classList.contains('compact') && !e.target.closest('a')) { hud.classList.toggle('open'); hud.setAttribute('aria-expanded', hud.classList.contains('open')); } });
 
   const vel = { x: 0, z: 0 };
   let stride = 0;
@@ -282,6 +300,39 @@
         if (knob.style.transform) throw new Error('the knob did not return to the centre');
         event('joystick-moved', `dragged right: moved ${moved.toFixed(1)}, touch device: ${touchCapable()}`);
         return `dragged right: moved ${moved.toFixed(1)}, top speed ${Math.max(...speeds).toFixed(1)}; touch device: ${touchCapable()}`;
+      });
+      await check('Phone layout: no overlap with the joystick, one-line info panel that opens on tap, whole title, inside the safe area', async () => {
+        if (!touchCapable()) { event('layout-skipped', 'not a touch device: desktop layout is unchanged'); return 'desktop layout, skipped'; }
+        showStick(true);
+        const probe = document.createElement('div');   // reads the safe-area insets the browser reports (0 on most desktops)
+        probe.style.cssText = 'position:fixed;visibility:hidden;left:0;top:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+        document.body.append(probe);
+        const cs = getComputedStyle(probe), inset = { t: parseFloat(cs.paddingTop), r: parseFloat(cs.paddingRight), b: parseFloat(cs.paddingBottom), l: parseFloat(cs.paddingLeft) };
+        probe.remove();
+        const R = (el) => el.getBoundingClientRect(), mute = document.getElementById('mute');
+        const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const inside = (r) => r.left >= inset.l - 0.5 && r.top >= inset.t - 0.5 && r.right <= innerWidth - inset.r + 0.5 && r.bottom <= innerHeight - inset.b + 0.5;
+        hud.classList.remove('open');
+        await wait(50);
+        const line = hud.querySelector('.line'), lh = parseFloat(getComputedStyle(line).lineHeight) || 20;
+        if (R(hud).height > lh * 1.6 + 12) throw new Error(`the collapsed panel is ${Math.round(R(hud).height)} px tall, more than one line`);
+        const title = hud.querySelector('.short');
+        if (line.scrollWidth > line.clientWidth + 1) throw new Error('the title line is cut off');
+        event('panel-collapsed', `panel ${Math.round(R(hud).width)}x${Math.round(R(hud).height)} px, one line, title "${title.textContent}" whole`);
+        for (const [n, el] of [['panel', hud], ['sound button', mute], ['joystick', stick]]) if (!inside(R(el))) throw new Error(`the ${n} is outside the safe area`);
+        for (const [n, el] of [['sound button', mute], ['panel', hud]]) if (hits(R(el), R(stick))) throw new Error(`the ${n} overlaps the joystick`);
+        event('controls-clear', `sound button at ${Math.round(R(mute).left)},${Math.round(R(mute).top)}, joystick at ${Math.round(R(stick).left)},${Math.round(R(stick).top)}: no overlap, all inside safe area (insets ${inset.t}/${inset.r}/${inset.b}/${inset.l})`);
+        const shut = R(hud).height;
+        hud.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', isPrimary: true, bubbles: true }));
+        hud.click();
+        await wait(50);
+        if (!hud.classList.contains('open') || R(hud).height <= shut + 20 || R(document.getElementById('readme')).height < 5) throw new Error('a tap did not open the full info panel');
+        if (!inside(R(hud))) throw new Error('the opened panel is outside the safe area');
+        event('panel-opened', `tap opened the panel: ${Math.round(R(hud).height)} px tall`);
+        hud.click();
+        await wait(50);
+        if (hud.classList.contains('open')) throw new Error('a second tap did not close the panel');
+        return `one line (${Math.round(shut)} px), opens on tap, no overlap with the joystick, inside safe area`;
       });
   };
   installNetPlaytest({
