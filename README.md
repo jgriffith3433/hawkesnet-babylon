@@ -140,6 +140,8 @@ An option given as `undefined` is ignored (the SDK's default stays).
 | `onPresence(fn)`, `presence`, `leaving` | Join, leave and emote events (`spawn`, `leave`, `emote`), the last 50, and avatars fading out. |
 | `dispose()` | Leave and remove every avatar and hook. |
 
+The demo site also serves your quickstart as `quickstart.html`, built from the code block above (`npm run build`), so it can't drift; the demo's `quickstart` playtest scenario opens it.
+
 **Try it with no install:** serve this folder (`node tools/serve.mjs`), open http://localhost:8796/example/ twice, move with
 WASD. It loads Babylon from its CDN and the SDK from net.hawkesgen.ai, and joins the demo project's test room.
 The demo is also a small game-feel reference: the capsule accelerates and brakes (it does not snap to full speed), the
