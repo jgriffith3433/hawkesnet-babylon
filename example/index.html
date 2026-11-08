@@ -286,6 +286,35 @@
   };
   installNetPlaytest({
     scenarios: [{
+      id: 'quickstart', title: 'The README quickstart page (quickstart.html) loads a scene and a second player joins', seconds: 60, tags: ['full'],
+      description: 'Opens quickstart.html, the page the build makes from the README\'s quickstart code and nothing else, full screen over this one, and runs its own smoke playtest: a Babylon scene with a canvas is drawn, a second player joins its room, and they see each other move (real WASD keys) and message.',
+      run: async ({ check, event, until, wait, metric }) => {
+        const frame = document.createElement('iframe');
+        frame.src = 'quickstart.html' + location.search.replace(/[?&]playtest=[^&]*/, '');
+        frame.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;z-index:50;background:#0e1116';
+        document.body.appendChild(frame);
+        event('quickstart-open', frame.src);
+        let pt = null;
+        await check('quickstart.html loads a Babylon scene', async () => {
+          await until(() => { pt = frame.contentWindow?.hawkesPlaytest; return pt?.state().ready; }, 30000, 'quickstart.html to draw its scene and connect');
+          const d = frame.contentDocument, c = d.getElementById('c');
+          if (!c || c.width < 100) throw new Error('no canvas on the quickstart page');
+          if (!/hawkes-net-babylon\.mjs/.test(d.querySelector('script[type=importmap]').textContent)) throw new Error('the page does not use this package');
+          return `canvas ${c.width}x${c.height}`;
+        });
+        await check('Two players see each other on the quickstart page', async () => {
+          pt.start('smoke');
+          let st = pt.state();
+          await until(() => { st = pt.state(); return st.status !== 'running'; }, 55000, 'the quickstart smoke test to finish');
+          const r = pt.report();
+          for (const l of r.log.filter((l) => /^(PASS|FAIL)/.test(l))) event('quickstart', l);
+          metric('quickstartJoinMs', r.metrics.secondJoinMs ?? -1);
+          if (st.status !== 'won') throw new Error(`quickstart smoke ${st.status}: ${r.problems.map((p) => p.message).join('; ').slice(0, 150)}`);
+          return `${r.metrics.checksPassed} checks passed, second player joined in ${r.metrics.secondJoinMs} ms`;
+        });
+        frame.remove();
+      },
+    }, {
       id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 40, tags: ['full'],
       description: 'One player alone on the demo: walks by real keys (acceleration, braking), watches the camera ease after it, then with the named setup option touch:true (default here) the page is set up as a touch device, the joystick must appear on screen and is dragged by real pointer events. Options: touch (default true).',
       run: async ({ check, event, until, wait, options }) => {
