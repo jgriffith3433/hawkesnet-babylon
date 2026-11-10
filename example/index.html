@@ -15,6 +15,9 @@
   #mute { position: fixed; left: 12px; bottom: 12px; z-index: 5; font: inherit; color: #e8eaed; background: rgba(0,0,0,.55); border: 1px solid rgba(159,232,112,.55); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
   #mute[aria-pressed="true"] { color: #9aa1ad; border-color: #55606e; }
   #mute:focus-visible { outline: 2px solid #9fe870; outline-offset: 2px; }
+  /* Orb scoreboard: top-right, separate from the one-line info panel (left). */
+  #scores { position: fixed; right: 12px; top: 12px; z-index: 5; background: rgba(0,0,0,.55); padding: 8px 12px; border-radius: 8px; line-height: 1.45; text-align: right; min-width: 6.5rem; pointer-events: none; }
+  #scores b { color: #7fe8ff; }
   /* Touch joystick: shown on touch devices only (or with ?touch=1). */
   #stick { position: fixed; left: 28px; bottom: 28px; width: 140px; height: 140px; border-radius: 50%; display: none; touch-action: none; user-select: none; -webkit-user-select: none;
     background: rgba(14,17,22,.45); border: 2px solid rgba(159,232,112,.55); box-shadow: 0 0 18px rgba(159,232,112,.18); }
@@ -30,6 +33,7 @@
   body.compact #hud.open .chev { display: none; }
   body.compact #mute { left: auto; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); }
   body.compact #stick { left: max(28px, env(safe-area-inset-left)); bottom: max(28px, env(safe-area-inset-bottom)); }
+  body.compact #scores { right: max(12px, env(safe-area-inset-right)); top: max(12px, env(safe-area-inset-top)); font-size: 13px; }
 </style>
 <script>
   // Playtest stub at once (Studio sees it before Babylon or any module loads), then recover if importing
@@ -126,7 +130,8 @@
 <canvas id="c"></canvas>
 <button id="mute" type="button" aria-pressed="false" title="Mute or unmute all sound (M)">🔊 Sound on</button>
 <div id="stick" aria-label="Move joystick"><i></i></div>
-<div id="hud"><div class="line"><b class="long">Hawkes Net + Babylon.js</b><b class="short">Hawkes Net</b> · <span id="status">connecting…</span><span class="chev" aria-hidden="true">▾</span></div><div class="more"><span id="how">WASD to move</span> · open this page twice<br><small id="net"></small> · <small id="ver"></small><br><a id="readme" href="https://github.com/jgriffith3433/hawkesnet-babylon#readme" target="_blank" rel="noopener">README: quickstart and API notes</a></div></div>
+<div id="scores" aria-live="polite">Orbs…</div>
+<div id="hud"><div class="line"><b class="long">Hawkes Net + Babylon.js</b><b class="short">Hawkes Net</b> · <span id="status">connecting…</span><span class="chev" aria-hidden="true">▾</span></div><div class="more"><span id="how">WASD to move · walk into a glowing orb</span> · open this page twice<br><small id="net"></small> · <small id="ver"></small><br><a id="readme" href="https://github.com/jgriffith3433/hawkesnet-babylon#readme" target="_blank" rel="noopener">README: quickstart and API notes</a></div></div>
 <script type="module">
 (async () => {
   // ?net=http://127.0.0.1:8786 tries a Hawkes Net on this machine (hawkesnet: npm run dev); ?project= your project.
@@ -254,6 +259,19 @@
   mp.onPresence((e) => { if (e.id === mp.lobby?.id) return; if (e.type === 'spawn') audio.chime(); else if (e.type === 'leave') audio.farewell(); });
   mp.when('status', ({ status }) => { document.getElementById('status').innerHTML = `<b>${status}</b> as ${name}`; });
 
+  // Host-authoritative glowing orbs (sync.state / sync.action): walk into one to score; host awards and respawns.
+  const { createOrbs } = await import('./orbs.mjs');
+  const scoresEl = document.getElementById('scores');
+  const orbs = createOrbs({
+    BABYLON: B, scene,
+    onCollect: (kind) => { if (kind === 'self') audio.collect(); },
+    onHud: (html) => { scoresEl.innerHTML = html; },
+  });
+  const attachOrbs = () => { if (mp.lobby?.ready || mp.room) orbs.attachMain(mp.lobby); };
+  mp.when('joined', () => attachOrbs());
+  attachOrbs();
+  window.hawkesBabylonOrbs = orbs;
+
   // ---- Controls: keys and a touch joystick feed one input vector; the player accelerates toward it and eases to a stop.
   const keys = {};
   addEventListener('keydown', (e) => (keys[e.key.toLowerCase()] = true));
@@ -321,6 +339,9 @@
     cam.target.x += (me.position.x - cam.target.x) * f; cam.target.z += (me.position.z - cam.target.z) * f;
     motion.camLag = Math.hypot(me.position.x - cam.target.x, me.position.z - cam.target.z);
     if (mp.room?.sync.mine('crate')) crate.rotation.y += dt;
+    // Event-driven collect: only while moving onto an orb (no polling the service).
+    if (sp > 0.35 && mp.lobby) orbs.touchAt(mp.lobby, me.position.x, me.position.z);
+    orbs.tick(performance.now());
   });
   // Studio's playtest bot (net-playtest.mjs): a second player in this page, this capsule moved by real WASD input.
   const { installNetPlaytest } = await import('./net-playtest.mjs');
@@ -329,6 +350,7 @@
   // Probe for the phone scenario's 390x844 iframe (same-origin): the outer bot reads place, speed and layout from here.
   const PHONE_W = 390, PHONE_H = 844, MIN_TEXT_PX = 12;
   const atPhoneSize = (w = window) => Math.abs(w.innerWidth - PHONE_W) <= 12 && Math.abs(w.innerHeight - PHONE_H) <= 40;
+  window.__hawkesDemoLobby = mp.lobby;
   window.__hawkesDemoProbe = {
     ready: () => Boolean(scene.isReady() && me),
     pos: () => ({ x: me.position.x, y: me.position.y, z: me.position.z }),
@@ -338,7 +360,9 @@
     // rect() runs in this page's realm so client coordinates match PointerEvents dispatched here (iframe-safe).
     rect: (el) => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; },
     style: (el) => el.ownerDocument.defaultView.getComputedStyle(el),
-    stick, hud, mute: muteBtn, knob,
+    stick, hud, mute: muteBtn, knob, scores: scoresEl,
+    lobby: () => mp.lobby,
+    orbs: () => window.hawkesBabylonOrbs,
   };
   // Phone layout + joystick direction checks at a real 390x844 surface (in-page when already that size, else a phone frame).
   const phoneChecks = async ({ check, until, wait, event, metric, scene: setScene, win, doc, probe }) => {
@@ -424,6 +448,19 @@
         metric('phoneJoyUpZ', Math.round(up.z * 10) / 10);
         await wait(300);
         return `right Δx ${right.x.toFixed(1)}, up Δz ${up.z.toFixed(1)}`;
+      });
+      await check('Six glowing orbs are on the court at phone size', async () => {
+        const api = probe.orbs?.() || win.hawkesBabylonOrbs;
+        const lob = probe.lobby?.() || win.__hawkesDemoLobby;
+        await until(() => {
+          try { return api && lob && api.snapshot(lob).orbs.length === 6; } catch { return false; }
+        }, 12000, 'six orbs to appear on the phone surface');
+        const snap = api.snapshot(lob);
+        metric('phoneOrbCount', snap.orbs.length);
+        event('phone-orbs', snap.orbs.map((o) => o.id).join(' '));
+        setScene('Phone orbs');
+        await wait(250);
+        return `${snap.orbs.length} orbs on the 390×844 court`;
       });
   };
   // The three feel checks (movement, camera, touch stick) with real key and pointer input; shared by smoke and the 'feel' scenario.
@@ -521,6 +558,15 @@
         return `one line (${Math.round(shut)} px), opens on tap, no overlap with the joystick, inside safe area`;
       });
   };
+  const openPlaytestPeer = (peerName, sub) => {
+    const b = lobby({
+      project: q.get('project') || 'netdemo', transport: 'relay',
+      ...(endpoint ? { endpoint } : {}), name: peerName, log: false, sub,
+    });
+    b.join('babylon-demo');
+    return b;
+  };
+  const { orbChecks } = await import('./orbs-playtest.mjs');
   installNetPlaytest({
     scenarios: [{
       id: 'quickstart', title: 'The README quickstart page (quickstart.html) loads a scene and a second player joins', seconds: 60, tags: ['full'],
@@ -698,22 +744,45 @@
     product: 'hawkes-net-babylon',
     where: (endpoint || globalThis.HAWKES_NET_ENDPOINT || 'https://net.hawkesgen.ai').replace(/^https?:\/\//, ''),
     main: () => mp.lobby,
-    openBot: async () => {
-      const b = lobby({ project: q.get('project') || 'netdemo', transport: 'relay', ...(endpoint ? { endpoint } : {}), name: 'Playtest bot', log: false });
-      b.join('babylon-demo');
-      return b;
-    },
+    openBot: async () => openPlaytestPeer('Playtest bot', `pt-${Math.random()}`),
     drive: async (step) => { key('d', true); await step(1200); key('d', false); key('w', true); await step(900); key('w', false); await step(100); },
     myPos: () => { const p = me.getAbsolutePosition(); return [p.x, p.y, p.z]; },
     shownPos: (id) => { const n = mp.peers.get(id)?.node; return n ? [n.position.x, n.position.y, n.position.z] : null; },
     botPose: (u) => [-4 + 8 * u, 0, -4],
     tolerance: 0.3,
+    // Extends two-players: open a bot as B, steer onto an orb, assert A sees B's score rise within 500 ms.
+    afterTwoPlayers: async (c) => {
+      let bot = null;
+      try {
+        bot = await (c.openBot ? c.openBot() : openPlaytestPeer('Orb bot', `orb-${Math.random()}`));
+        await c.until(() => bot && (bot.ready || bot.room?.status === 'online') && c.main.peers.has(bot.id), 15000, 'the orb collector bot to join');
+        await orbChecks({
+          check: c.check, main: c.main, collector: bot, until: c.until, wait: c.wait, metric: c.metric,
+          openLate: () => openPlaytestPeer('Late joiner', `late-${Math.random()}`),
+          event: c.event || (() => {}), scene: c.scene,
+        });
+      } finally { try { await bot?.leave(); } catch { /* gone */ } }
+    },
     // Criteria checks on the look of the scene, run in the smoke scenario while the second player is in the room.
-    extra: async ({ check, main, bot, until, wait, event, options = {} }) => {
+    extra: async ({ check, main, bot, until, wait, event, options = {}, metric, scene: setScene }) => {
       // Feel: real key and pointer input; the numbers are read from the controls the page really runs.
       // Same named setup as the feel scenario: the page is set up as a touch device, so the stick shows before it is dragged.
       if (options.touch !== false) { pretendTouch = true; showStick(touchCapable()); event?.('touch-device', 'setup: page set up as a touch device'); }
       await feelChecks({ check, until, wait, event: event || (() => {}) });
+      // Full orb criteria (collect + late join) run on two-players via afterTwoPlayers; smoke only checks they lit.
+      await check('Six glowing orbs are on the court', async () => {
+        orbs.wire(main);
+        const ms = await until(() => orbs.snapshot(main).orbs.length === 6, 10000, 'the host to place six orbs');
+        const snap = orbs.snapshot(main);
+        for (const g of orbs.groundGaps()) {
+          if (g.gap > 0.02 || g.gap < -0.05) throw new Error(`quality.ground-contact: ${g.id} ${(g.gap * 100).toFixed(0)} cm off the ground`);
+        }
+        metric?.('orbCount', snap.orbs.length);
+        metric?.('orbsSyncMs', Math.round(ms));
+        event?.('orbs', snap.orbs.map((o) => `${o.id}@${o.x.toFixed(1)},${o.z.toFixed(1)}`).join(' '));
+        setScene?.('Orbs');
+        return `${snap.orbs.length} orbs after ${Math.round(ms)} ms`;
+      });
       await check('The info panel shows the package version', async () => {
         const shown = document.getElementById('ver')?.textContent || '';
         if (shown !== 'v' + VERSION) throw new Error(`panel says "${shown}", package is v${VERSION}`);
