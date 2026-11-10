@@ -44,6 +44,21 @@ test('the demo page links to the README', () => {
   assert.match(fs.readFileSync(new URL('example/index.html', root), 'utf8'), /<a id="readme" href="[^"]*#readme"/);
 });
 
+test('the feel scenario measures rule-11 metrics, enforces targets, and marks start/turn/stop clips', () => {
+  const html = fs.readFileSync(new URL('example/index.html', root), 'utf8');
+  for (const key of ['inputDelayMs', 'timeToFullSpeedMs', 'stopTimeMs', 'cameraLagPeak', 'cameraMaxJump', 'cameraInsideGeometry', 'fovDegrees', 'feel.inputLatencyMs', 'feel.cameraClipSeconds']) {
+    assert.ok(html.includes(`'${key}'`), `reports metric ${key}`);
+  }
+  for (const clip of ['Feel start', 'Feel turn', 'Feel stop']) {
+    assert.ok(html.includes(`setScene('${clip}')`), `marks clip scene ${clip}`);
+  }
+  assert.match(html, /if \(delay >= 100\) throw new Error/);
+  assert.match(html, /if \(tFull < 80\) throw new Error/);
+  assert.match(html, /if \(tStop < 80\) throw new Error/);
+  assert.match(html, /if \(inside\) throw new Error/);
+  assert.match(html, /if \(fov < 60 \|\| fov > 75\) throw new Error/);
+});
+
 test('dist/ has demo-root.json and both pages define hawkesPlaytest stub before any module import, redirect from /a/b/, and show an error card on load failure', async () => {
   if (!fs.existsSync(new URL('node_modules/@hawkesgen/net', root))) return;
   const { execFileSync } = await import('node:child_process');
