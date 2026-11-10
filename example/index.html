@@ -122,6 +122,7 @@
 <!-- No install: Babylon from its CDN, the SDK from net.hawkesgen.ai, this module from the page's folder. With npm,
      import from '@babylonjs/core', '@hawkesgen/net' and '@hawkesgen/net-babylon' instead. -->
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 <script type="importmap">
 { "imports": { "@hawkesgen/net": "https://net.hawkesgen.ai/sdk/hawkes-net@1.mjs" } }
 </script>
@@ -224,16 +225,66 @@
   }
 
   // The player: a node standing on the floor (that is what Hawkes Net sends), a capsule in it, a nameplate over it.
+  // One rigged glb (RobotExpressive, CC0, see README) loaded once and instanced per player, tinted per colour.
+  const container = await B.SceneLoader.LoadAssetContainerAsync('./assets/', 'robot.glb', scene);
+  container.removeAllFromScene();
+  const chars = new Set();
+  const hueOf = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
+  const makeChar = (id, root, tint) => {
+    const inst = container.instantiateModelsToScene((n) => `hn-body-${id}-${n}`, false, { doNotInstantiate: true });
+    const holder = new B.TransformNode('char-' + id, scene);
+    holder.parent = root;
+    const top = inst.rootNodes[0];
+    top.parent = holder;
+    const ms = holder.getChildMeshes(false);
+    for (const m of ms) { m.isPickable = false; shadows.addShadowCaster(m); }
+    for (const m of ms) if (m.material && m.material.name === 'Main') m.material.albedoColor = tint;
+    // Scale to a 1.8 m person and stand the lowest point on y = 0.
+    holder.computeWorldMatrix(true); ms.forEach((m) => m.computeWorldMatrix(true));
+    const { min, max } = holder.getHierarchyBoundingVectors(true);
+    const k = 1.8 / Math.max(0.01, max.y - min.y);
+    holder.scaling.setAll(k); holder.position.y = -min.y * k;
+    const g = {}; for (const a of inst.animationGroups) { a.stop(); g[a.name] = a; }
+    const c = { root, g, cur: null, last: null, waveUntil: 0 };
+    chars.add(c); root.onDisposeObservable.add(() => chars.delete(c));
+    play(c, 'Idle');
+    return c;
+  };
+  const play = (c, name) => { if (c.cur === name || !c.g[name]) return; c.g[c.cur]?.stop(); c.cur = name; c.g[name].start(name !== 'Wave', 1); };
+  const byRoot = new Map();
+  scene.onBeforeRenderObservable.add(() => {
+    const now = performance.now(), dt = Math.max(0.001, engine.getDeltaTime() / 1000);
+    for (const c of chars) {
+      const p = c.root.position;
+      const sp = c.last ? Math.hypot(p.x - c.last.x, p.z - c.last.z) / dt : 0;
+      c.last = { x: p.x, z: p.z };
+      c.sp = (c.sp || 0) * 0.8 + sp * 0.2;
+      play(c, now < c.waveUntil ? 'Wave' : c.sp > 4.5 ? 'Running' : c.sp > 0.4 ? 'Walking' : 'Idle');
+    }
+  });
+  const waveOn = (root) => { for (const c of chars) if (c.root === root) c.waveUntil = performance.now() + 1500; };
+  const charAvatar = (peer, BB, sc) => {
+    const root = new BB.TransformNode(`hn-avatar-${peer.id}`, sc);
+    const c = makeChar(peer.id, root, BB.Color3.FromHSV(hueOf(peer.id), 0.55, 0.95));
+    byRoot.set(peer.id, root);
+    if (peer.name && (typeof document !== 'undefined')) {
+      const tag = BB.MeshBuilder.CreatePlane(`hn-tag-${peer.id}`, { width: 1.6, height: 0.4 }, sc);
+      tag.position.y = 2.2; tag.billboardMode = BB.Mesh.BILLBOARDMODE_ALL; tag.parent = root; tag.isPickable = false;
+      const tex = new BB.DynamicTexture(`hn-tagtex-${peer.id}`, { width: 512, height: 128 }, sc, false);
+      tex.hasAlpha = true;
+      tex.drawText(String(peer.name).slice(0, 20), null, 90, 'bold 64px sans-serif', 'white', 'transparent', true);
+      const tm = new BB.StandardMaterial(`hn-tagmat-${peer.id}`, sc);
+      tm.diffuseTexture = tex; tm.emissiveColor = new BB.Color3(1, 1, 1); tm.disableLighting = true; tm.useAlphaFromDiffuseTexture = true; tm.backFaceCulling = false;
+      tag.material = tm;
+    }
+    return root;
+  };
+  // The player: a node standing on the floor (that is what Hawkes Net sends), the character in it.
   const me = new B.TransformNode('me', scene);
-  const body = B.MeshBuilder.CreateCapsule('me-body', { height: 1.8, radius: 0.35 }, scene);
-  body.position.y = 0.9; body.parent = me;
-  const mm = new B.StandardMaterial('m', scene); mm.diffuseColor = new B.Color3(1, 0.85, 0.3); body.material = mm;
-  shadows.addShadowCaster(body);
+  makeChar('me', me, new B.Color3(1, 0.85, 0.3));
   const crate = B.MeshBuilder.CreateBox('crate', { size: 1 }, scene);
   crate.position.set(3, 0.5, 3); shadows.addShadowCaster(crate);
   const cm = new B.StandardMaterial('crateMat', scene); cm.diffuseColor = new B.Color3(0.75, 0.5, 0.25); crate.material = cm;
-  // Other players' capsules (made by the module) cast shadows too.
-  scene.onNewMeshAddedObservable.add((m) => { if (m.name.startsWith('hn-body-')) shadows.addShadowCaster(m); });
 
   // A nameplate in the module's own style, for the local player (the module draws everyone else's).
   const plate = (label, parent) => {
@@ -258,10 +309,10 @@
 
   const name = 'Player ' + Math.floor(Math.random() * 900 + 100);
   plate(name, me);
-  const mp = multiplayer(scene, { babylon: B, project: q.get('project') || 'netdemo', endpoint, name, player: me, area: 'babylon-demo' });
+  const mp = multiplayer(scene, { babylon: B, project: q.get('project') || 'netdemo', endpoint, name, player: me, avatar: charAvatar, area: 'babylon-demo' });
   // The host spins the crate; everyone sees it.
   mp.share(crate, 'crate');
-  mp.onPresence((e) => { if (e.id === mp.lobby?.id) return; if (e.type === 'spawn') audio.chime(); else if (e.type === 'leave') audio.farewell(); });
+  mp.onPresence((e) => { if (e.type === 'emote') waveOn(e.id === mp.lobby?.id ? me : byRoot.get(e.id)); if (e.id === mp.lobby?.id) return; if (e.type === 'spawn') audio.chime(); else if (e.type === 'leave') audio.farewell(); });
   mp.when('status', ({ status }) => { document.getElementById('status').innerHTML = `<b>${status}</b> as ${name}`; });
 
   // Host-authoritative glowing orbs (sync.state / sync.action): walk into one to score; host awards and respawns.
@@ -920,6 +971,16 @@
         if (!mine) throw new Error("this player's own nameplate is missing");
         await until(() => { const n = mp.peers.get(bot.id)?.node; return n && n.getChildMeshes().some((m) => m.name.startsWith('hn-tag-') && m.isEnabled()); }, 5000, "the second player's nameplate over its avatar");
         return `own and ${bot.name ?? 'the second player'}'s nameplates shown`;
+      });
+      await check('Every player is a tinted animated character standing on the floor', async () => {
+        await until(() => { const n = mp.peers.get(bot.id)?.node; return n && n.getChildMeshes().some((m) => m.name.startsWith('hn-body-')); }, 5000, 'the second player to be a character');
+        const feet = (n) => { n.computeWorldMatrix(true); const ms = n.getChildMeshes().filter((m) => m.name.startsWith('hn-body-')); ms.forEach((m) => m.computeWorldMatrix(true)); return Math.min(...ms.map((m) => m.getBoundingInfo().boundingBox.minimumWorld.y)); };
+        for (const [who, n] of [['own', me], ['second', mp.peers.get(bot.id).node]]) {
+          if (n.getScene().animationGroups.filter((a) => a.isPlaying).length < 2) throw new Error('no character clip is playing');
+          const y = feet(n) - n.getAbsolutePosition().y;
+          if (Math.abs(y) > 0.08) throw new Error(`${who} character's feet are ${y.toFixed(2)} m off the floor`);
+        }
+        return 'both players are animated robots, feet on the floor';
       });
       // Presence: a third player pops in, waves are seen both ways, and the third player fades out when it leaves.
       let guest = null;
