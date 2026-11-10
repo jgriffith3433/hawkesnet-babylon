@@ -158,3 +158,7 @@ instead (see the SDK's README).
 [hawkesnet](https://net.hawkesgen.ai) checkout beside this one, or `HAWKESNET=<path>`).
 
 License: [MIT](LICENSE).
+
+## Credits
+
+The demo's character, `example/assets/robot.glb`, is RobotExpressive by Tomás Laulhé (Quaternius), CC0 (https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/RobotExpressive).
