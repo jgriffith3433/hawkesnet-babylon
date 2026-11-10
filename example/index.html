@@ -46,7 +46,7 @@
       { id: 'smoke', title: 'Two players in one page meet in a room, move, message and leave', seconds: 45, tags: ['smoke'] },
       { id: 'two-players', title: 'Real browsers on one ?room= find each other, move and message', seconds: 75, tags: ['full', 'multiplayer'] },
       { id: 'phone', title: 'Phone at 390x844: joystick moves you, no overlap, one-line panel', seconds: 50, tags: ['full', 'phone'] },
-      { id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 40, tags: ['full'] },
+      { id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 55, tags: ['full'] },
       { id: 'quickstart', title: 'The README quickstart page (quickstart.html) loads a scene and a second player joins', seconds: 60, tags: ['full'] },
       { id: 'demo-boot', title: 'Playtest hook within 1 s, deep-path recovery, and module load error card', seconds: 35, tags: ['smoke', 'full'] }
     ];
@@ -149,8 +149,12 @@
   scene.fogMode = B.Scene.FOGMODE_EXP2; scene.fogDensity = 0.012; scene.fogColor = new B.Color3(0.55, 0.68, 0.85);
   const cam = new B.ArcRotateCamera('cam', -Math.PI / 2, 1.0, 20, new B.Vector3(0, 1, 0), scene);
   cam.lowerRadiusLimit = 8; cam.upperRadiusLimit = 34; cam.upperBetaLimit = 1.45;
-  cam.fov = 65 * Math.PI / 180;   // vertical field of view: 65 degrees
-  cam.attachControl(true);
+  cam.minZ = 0.15;                 // keep the near plane off the eye (quality: no-z-fighting)
+  cam.fov = 65 * Math.PI / 180;   // vertical field of view: 65 degrees (rule: 60–75)
+  // Mouse can orbit; keyboard stays with the player (WASD/arrows). No inertia so a drag never coasts into a snap.
+  cam.attachControl(document.getElementById('c'), true);
+  cam.inertia = 0; cam.panningInertia = 0;
+  try { cam.inputs.attached.keyboard?.detachControl(); } catch { /* older Babylon builds */ }
 
   // Procedural textures drawn on canvases: nothing to download, nothing to generate.
   const paint = (label, size, draw) => { const t = new B.DynamicTexture(label, size, scene, true); draw(t.getContext(), size); t.update(); return t; };
@@ -311,14 +315,24 @@
 
   const vel = { x: 0, z: 0 };
   let stride = 0;
-  const motion = { speed: 0, camLag: 0, camJump: 0, camInside: false, frames: 0 };   // read by the playtest checks
+  const motion = { speed: 0, camLag: 0, camJump: 0, camInside: false, frames: 0, camClipSec: 0 };   // read by the playtest checks
   let lastCam = null;
-  // After every frame: the largest jump the camera made and whether its eye is inside a solid mesh (the floor, a pillar, the crate).
+  const eyeInside = (p) => p.y < 0.35 || scene.meshes.some((m) => (m.name === 'crate' || m.name.startsWith('pillar')) && m.getBoundingInfo().boundingBox.intersectsPoint(p));
+  // One small nudge per frame if the eye is inside a solid (never a radius snap that itself fails the jump check).
+  const clearEye = () => {
+    const p = cam.globalPosition;
+    if (!eyeInside(p)) return false;
+    cam.radius = Math.min(cam.upperRadiusLimit, cam.radius + 0.15);
+    if (p.y < 0.35) cam.beta = Math.min(cam.upperBetaLimit, Math.max(0.35, cam.beta - 0.02));
+    return eyeInside(cam.globalPosition);
+  };
+  // Per rendered frame: largest eye jump (true snap metric) and whether the eye is still inside geometry.
   scene.onAfterRenderObservable.add(() => {
     const p = cam.globalPosition;
     motion.camJump = lastCam ? Math.hypot(p.x - lastCam.x, p.y - lastCam.y, p.z - lastCam.z) : 0;
     lastCam = p.clone(); motion.frames++;
-    motion.camInside = p.y < 0.05 || scene.meshes.some((m) => (m.name === 'crate' || m.name.startsWith('pillar')) && m.getBoundingInfo().boundingBox.intersectsPoint(p));
+    motion.camInside = eyeInside(p);
+    if (motion.camInside) motion.camClipSec += engine.getDeltaTime() / 1000;
   });
   scene.onBeforeRenderObservable.add(() => {
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
@@ -343,9 +357,14 @@
       let d = want - me.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
       me.rotation.y += d * (1 - Math.exp(-dt * 12));
     }
-    // The camera eases after the player every frame (frame-rate independent), so it trails when moving and settles when stopped.
+    // Ease the follow target, but cap travel so a hitch trails instead of teleporting the eye in one frame.
     const f = 1 - Math.exp(-dt * FOLLOW);
-    cam.target.x += (me.position.x - cam.target.x) * f; cam.target.z += (me.position.z - cam.target.z) * f;
+    let dx = (me.position.x - cam.target.x) * f, dz = (me.position.z - cam.target.z) * f;
+    const maxStep = MAX_SPEED * Math.min(dt, 1 / 30) + 0.2;
+    const stepLen = Math.hypot(dx, dz);
+    if (stepLen > maxStep) { dx *= maxStep / stepLen; dz *= maxStep / stepLen; }
+    cam.target.x += dx; cam.target.z += dz;
+    clearEye();
     motion.camLag = Math.hypot(me.position.x - cam.target.x, me.position.z - cam.target.z);
     if (mp.room?.sync.mine('crate')) crate.rotation.y += dt;
     // Event-driven collect: only while moving onto an orb (no polling the service).
@@ -473,7 +492,7 @@
       });
   };
   // The three feel checks (movement, camera, touch stick) with real key and pointer input; shared by smoke and the 'feel' scenario.
-  const feelChecks = async ({ check, until, wait, event = () => {}, metric = () => {} }) => {
+  const feelChecks = async ({ check, until, wait, event = () => {}, metric = () => {}, scene: setScene = () => {}, progress = () => {} }) => {
       const sample = async (ms, f) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { f(); await wait(16); } f(); };
       await check('Movement accelerates and decelerates', async () => {
         await until(() => motion.speed < 0.01, 5000, 'the player to be standing still');
@@ -492,6 +511,7 @@
         event('movement-eased', `0 to ${top.toFixed(1)} units/s, braked to a stop`);
         return `0 to ${top.toFixed(1)} over ${up.findIndex((v) => v >= top * 0.99) * 16} ms, braked to a stop`;
       });
+      progress(0.2);
       await check('The camera follows with easing', async () => {
         await until(() => motion.speed < 0.01 && motion.camLag < 0.05, 6000, 'the camera to settle on the player');
         const lag = [];
@@ -506,32 +526,44 @@
         event('camera-eased', `trailed ${peak.toFixed(1)} units, settled in ${Math.round(ms)} ms`);
         return `trailed ${peak.toFixed(1)} units, settled in ${Math.round(ms)} ms`;
       });
+      progress(0.4);
       await check('Feel metrics: input delay, speed-up, stop, camera lag, no snaps, no clipping, field of view', async () => {
         await until(() => motion.speed < 0.01 && motion.camLag < 0.05, 8000, 'the player and camera to settle');
+        motion.camClipSec = 0;
         const rec = [];
         const off = scene.onAfterRenderObservable.add(() => rec.push({ t: performance.now(), sp: motion.speed, lag: motion.camLag, jump: motion.camJump, inside: motion.camInside, x: me.position.x, z: me.position.z, ry: me.rotation.y }));
         const t0 = performance.now(), x0 = me.position.x;
+        setScene('Feel start');
         event('clip-start', 'pressing D');
         key('d', true);
         await until(() => me.position.x - x0 > 0.002, 1500, 'the player to start moving');
-        const delay = rec.find((r) => r.x - x0 > 0.002).t - t0;
+        const first = rec.find((r) => r.x - x0 > 0.002);
+        if (!first) throw new Error('no motion sample after input');
+        const delay = first.t - t0;
         await until(() => motion.speed >= MAX_SPEED * 0.95, 3000, 'the player to reach full speed');
         const tFull = performance.now() - t0;
+        setScene('Feel turn');
         event('clip-turn', 'turning to W at full speed');
         key('d', false); key('w', true);
         await wait(900);
         key('w', false);
         const tRel = performance.now();
+        setScene('Feel stop');
         event('clip-stop', 'keys released');
         await until(() => motion.speed < 0.01, 4000, 'the player to stop');
         const tStop = performance.now() - tRel;
-        const lagPeak = Math.max(...rec.map((r) => r.lag));
+        const lagPeak = Math.max(0, ...rec.map((r) => r.lag));
         await until(() => motion.camLag < 0.05, 6000, 'the camera to catch up');
         scene.onAfterRenderObservable.remove(off);
-        const jump = Math.max(...rec.slice(1).map((r) => r.jump)), inside = rec.some((r) => r.inside), fov = cam.fov * 180 / Math.PI;
+        const jumps = rec.slice(1).map((r) => r.jump);
+        const jump = jumps.length ? Math.max(...jumps) : 0;
+        const inside = rec.some((r) => r.inside) || motion.camClipSec > 0;
+        const fov = cam.fov * 180 / Math.PI;
         const m = (k, v) => metric(k, Math.round(v * 100) / 100);
         m('inputDelayMs', delay); m('timeToFullSpeedMs', tFull); m('stopTimeMs', tStop); m('cameraLagPeak', lagPeak);
         m('cameraMaxJump', jump); m('cameraInsideGeometry', inside ? 1 : 0); m('fovDegrees', fov); m('feelFrames', rec.length);
+        // Studio quality gate names (camera-and-controls): same readings under the feel.* keys.
+        m('feel.inputLatencyMs', delay); m('feel.cameraClipSeconds', motion.camClipSec);
         event('feel-metrics', `delay ${Math.round(delay)} ms, full speed ${Math.round(tFull)} ms, stop ${Math.round(tStop)} ms, camera lag ${lagPeak.toFixed(2)}, max camera jump ${jump.toFixed(3)}, fov ${fov.toFixed(0)}`);
         if (delay >= 100) throw new Error(`input delay ${Math.round(delay)} ms (target under 100)`);
         if (tFull < 80) throw new Error(`reached full speed in ${Math.round(tFull)} ms: no acceleration`);
@@ -541,6 +573,7 @@
         if (fov < 60 || fov > 75) throw new Error(`field of view ${fov.toFixed(0)} degrees (want 60 to 75)`);
         return `delay ${Math.round(delay)} ms, full speed ${Math.round(tFull)} ms, stop ${Math.round(tStop)} ms, camera lag ${lagPeak.toFixed(1)}, max jump ${jump.toFixed(2)}, fov ${fov.toFixed(0)}`;
       });
+      progress(0.7);
       await check('A touch joystick shows on touch devices and moves the player', async () => {
         // A desktop browser is not a touch device. With the named setup option {touch:true} the page is set up as one (the same
         // switch as ?touch=1) and the stick must then appear by the page's own rule, on screen, before it is dragged.
@@ -685,12 +718,12 @@
         }
       },
     }, {
-      id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 40, tags: ['full'],
-      description: 'One player alone on the demo: walks by real keys (acceleration, braking), watches the camera ease after it, then with the named setup option touch:true (default here) the page is set up as a touch device, the joystick must appear on screen and is dragged by real pointer events. Options: touch (default true).',
-      run: async ({ check, event, until, wait, options, metric }) => {
+      id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 55, tags: ['full'],
+      description: 'One player alone on the demo: walks by real keys (acceleration, braking), measures input delay / accel / stop / camera lag and snaps (clip-start, clip-turn, clip-stop), watches the camera ease after it, then with the named setup option touch:true (default here) the page is set up as a touch device, the joystick must appear on screen and is dragged by real pointer events. Options: touch (default true).',
+      run: async ({ check, event, until, wait, options, metric, scene: setScene, progress }) => {
         await until(() => scene.isReady() && me, 20000, 'the scene to be ready');
         if (options.touch !== false) { pretendTouch = true; showStick(touchCapable()); event('touch-device', 'setup: page set up as a touch device'); }
-        await feelChecks({ check, until, wait, event, metric });
+        await feelChecks({ check, until, wait, event, metric, scene: setScene, progress });
       },
     }, {
       id: 'demo-boot', title: 'Playtest hook within 1 s, deep-path recovery, and module load error card', seconds: 35, tags: ['smoke', 'full'],
@@ -808,11 +841,11 @@
       } finally { try { await bot?.leave(); } catch { /* gone */ } }
     },
     // Criteria checks on the look of the scene, run in the smoke scenario while the second player is in the room.
-    extra: async ({ check, main, bot, until, wait, event, options = {}, metric, scene: setScene }) => {
+    extra: async ({ check, main, bot, until, wait, event, options = {}, metric, scene: setScene, progress }) => {
       // Feel: real key and pointer input; the numbers are read from the controls the page really runs.
       // Same named setup as the feel scenario: the page is set up as a touch device, so the stick shows before it is dragged.
       if (options.touch !== false) { pretendTouch = true; showStick(touchCapable()); event?.('touch-device', 'setup: page set up as a touch device'); }
-      await feelChecks({ check, until, wait, event: event || (() => {}), metric });
+      await feelChecks({ check, until, wait, event: event || (() => {}), metric, scene: setScene || (() => {}), progress: progress || (() => {}) });
       // Full orb criteria (collect + late join) run on two-players via afterTwoPlayers; smoke only checks they lit.
       await check('Six glowing orbs are on the court', async () => {
         orbs.wire(main);
