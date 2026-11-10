@@ -6,7 +6,8 @@
 //                Hawkes Net, see each other move (this page's player moved by real input), trade messages both ways,
 //                and the second one leaves. One browser is enough, so every playtest is a real two-player check.
 //   two-players  two (or more) real browsers on one ?room= (Studio's peers playtest) find each other, move, and trade
-//                messages.
+//                messages. Optional o.afterTwoPlayers(c) runs more checks while the other player is still in the room
+//                (hawkesnet's orb game; other demos leave it unset).
 //
 // Each check shows on the page as it passes or fails (top right), so the video and screenshots say what happened, and the
 // report's problems say which check failed and why. Nothing runs until Studio calls start() or the address has
@@ -232,6 +233,15 @@ export function installNetPlaytest(o) {
       metric('rttMs', ms);
       return `round trip ${ms} ms`;
     });
+    progress(0.85);
+    // Optional extra checks while the other player is still here (hawkesnet's orb game; other demos leave it unset).
+    if (o.afterTwoPlayers) {
+      await o.afterTwoPlayers({
+        check, main, other, until, wait, metric,
+        roundTrips: (f, w, t) => roundTrips(f, w, t),
+        openBot: o.openBot, event, step,
+      });
+    }
     progress(1);
     // Stay a little so the other browser can finish its own checks against this one.
     await wait(8000);
