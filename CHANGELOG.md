@@ -10,7 +10,7 @@ Everything that landed on beta since 0.1.2. The module's API is unchanged; this 
 - **Audio:** ambience, a join chime and footsteps while walking, with a mute button (M). Footsteps work again after a regression.
 - **Styled demo scene:** lit, with a textured floor, sky, shadows and nameplates.
 - **Docs:** a README quickstart and API notes, linked from the demo.
-- **Demo and playtest:** the demo site shows the package version in its info panel, and Studio's playtest bot (`smoke`, `two-players`, `feel`) checks it.
+- **Demo and playtest:** the demo site shows the package version in its info panel, and Studio's playtest bot (`smoke`, `two-players`, `phone`, `feel`) checks it.
 
 ## 0.1.2
 

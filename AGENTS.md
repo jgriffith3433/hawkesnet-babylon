@@ -18,8 +18,11 @@ over `@hawkesgen/net` (the hawkesnet repo's `sdk/js`). One file, `hawkes-net-bab
   (https://hawkesnet.hawkesgen.ai), so the demo joins beta Net's free test rooms (project `netdemo`).
   The page has Studio's playtest bot (`example/net-playtest.mjs`, `window.hawkesPlaytest`): `smoke` opens a second
   player in the same page and checks the room, avatars both ways (the capsule moved by real WASD input), messages both
-  ways and leaving; `two-players` is for Studio's peers playtest (real browsers on one `?room=`). The page adds its own `feel` scenario
-  (`installNetPlaytest({ scenarios: [{ id, title, seconds, tags, description, run }] })`): real keys and pointer events check
-  eased movement, the eased follow camera and the touch joystick (setup option `touch`, default true, makes the page a touch
-  device); smoke runs the same checks. The same file lives in
-  hawkesnet-js and hawkesnet (`public/demo-playtest.mjs`): change all three.
+  ways and leaving; `two-players` is for Studio's peers playtest (real browsers on one `?room=`). The page adds its own
+  scenarios (`installNetPlaytest({ scenarios: [{ id, title, seconds, tags, description, run }] })`): `phone` runs at
+  390×844 with touch pointer events (in-page when the runner is already that size, else a same-origin phone frame),
+  drags the joystick and asserts the capsule moves that way, and checks no button overlaps the stick, a one-line info
+  panel, no sideways scroll and text ≥ 12 px; `feel` checks eased movement, the eased follow camera and the touch
+  joystick (setup option `touch`, default true); smoke runs the feel checks too. Scenario list: `smoke`, `two-players`,
+  `phone`, `feel` (plus `quickstart`, `demo-boot`). The same net-playtest file lives in hawkesnet-js and hawkesnet
+  (`public/demo-playtest.mjs`): change all three.

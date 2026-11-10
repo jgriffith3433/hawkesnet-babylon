@@ -41,8 +41,9 @@
     var stubScenarios = [
       { id: 'smoke', title: 'Two players in one page meet in a room, move, message and leave', seconds: 45, tags: ['smoke'] },
       { id: 'two-players', title: 'Real browsers on one ?room= find each other, move and message', seconds: 75, tags: ['full', 'multiplayer'] },
-      { id: 'quickstart', title: 'The README quickstart page (quickstart.html) loads a scene and a second player joins', seconds: 60, tags: ['full'] },
+      { id: 'phone', title: 'Phone at 390x844: joystick moves you, no overlap, one-line panel', seconds: 50, tags: ['full', 'phone'] },
       { id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 40, tags: ['full'] },
+      { id: 'quickstart', title: 'The README quickstart page (quickstart.html) loads a scene and a second player joins', seconds: 60, tags: ['full'] },
       { id: 'demo-boot', title: 'Playtest hook within 1 s, deep-path recovery, and module load error card', seconds: 35, tags: ['smoke', 'full'] }
     ];
     window.hawkesPlaytest = {
@@ -325,6 +326,106 @@
   const { installNetPlaytest } = await import('./net-playtest.mjs');
   const { lobby } = await import('@hawkesgen/net');
   const key = (k, down) => dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { key: k, bubbles: true }));
+  // Probe for the phone scenario's 390x844 iframe (same-origin): the outer bot reads place, speed and layout from here.
+  const PHONE_W = 390, PHONE_H = 844, MIN_TEXT_PX = 12;
+  const atPhoneSize = (w = window) => Math.abs(w.innerWidth - PHONE_W) <= 12 && Math.abs(w.innerHeight - PHONE_H) <= 40;
+  window.__hawkesDemoProbe = {
+    ready: () => Boolean(scene.isReady() && me),
+    pos: () => ({ x: me.position.x, y: me.position.y, z: me.position.z }),
+    speed: () => motion.speed,
+    setTouch: (on = true) => { pretendTouch = on; showStick(touchCapable()); layout(); },
+    touchCapable, compact: () => document.body.classList.contains('compact'),
+    // rect() runs in this page's realm so client coordinates match PointerEvents dispatched here (iframe-safe).
+    rect: (el) => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; },
+    style: (el) => el.ownerDocument.defaultView.getComputedStyle(el),
+    stick, hud, mute: muteBtn, knob,
+  };
+  // Phone layout + joystick direction checks at a real 390x844 surface (in-page when already that size, else a phone frame).
+  const phoneChecks = async ({ check, until, wait, event, metric, scene: setScene, win, doc, probe }) => {
+      const R = (el) => probe.rect(el);
+      const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const sample = async (ms, f) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { f(); await wait(16); } f(); };
+      const ptr = (type, x, y, id = 9) => probe.stick.dispatchEvent(new win.PointerEvent(type, {
+        pointerId: id, pointerType: 'touch', isPrimary: true, bubbles: true, cancelable: true, clientX: x, clientY: y,
+      }));
+      setScene('Phone');
+      event('phone-viewport', `${win.innerWidth}x${win.innerHeight}`);
+      metric('phoneViewport', `${win.innerWidth}x${win.innerHeight}`);
+      await check(`The phone surface is ${PHONE_W}x${PHONE_H}`, async () => {
+        if (!atPhoneSize(win)) throw new Error(`viewport is ${win.innerWidth}x${win.innerHeight}, not ${PHONE_W}x${PHONE_H}`);
+        return `${win.innerWidth}x${win.innerHeight}`;
+      });
+      probe.setTouch(true);
+      await wait(80);
+      await check('Touch layout is on: joystick visible, compact HUD', async () => {
+        if (!probe.touchCapable()) throw new Error('touch setup did not take');
+        if (!probe.compact()) throw new Error('body.compact is off at phone width');
+        const sr = R(probe.stick);
+        if (probe.style(probe.stick).display === 'none' || sr.width < 40) throw new Error('the joystick is not on screen');
+        event('joystick-visible', `stick ${Math.round(sr.width)} px at ${Math.round(sr.left)},${Math.round(sr.top)}`);
+        return `compact, stick ${Math.round(sr.width)}x${Math.round(sr.height)} at ${Math.round(sr.left)},${Math.round(sr.top)}`;
+      });
+      await check('No sideways scroll and on-screen text is at least 12 px', async () => {
+        const over = doc.documentElement.scrollWidth - win.innerWidth;
+        metric('phoneSidewaysPx', Math.max(0, over));
+        if (over > 1 || win.scrollX) throw new Error(`the page scrolls sideways by ${over} px (scrollX ${win.scrollX})`);
+        const small = [];
+        let least = 99, n = 0;
+        for (const el of [probe.hud, probe.mute, ...probe.hud.querySelectorAll('*')]) {
+          if (!el || el.closest?.('#hawkes-net-playtest')) continue;
+          if (![...el.childNodes].some((x) => x.nodeType === 3 && x.textContent.trim())) continue;
+          if (!el.getClientRects().length) continue;
+          const px = parseFloat(probe.style(el).fontSize);
+          n++; least = Math.min(least, px);
+          if (px < MIN_TEXT_PX) small.push(`${el.id || el.className || el.tagName} ${px}px`);
+        }
+        metric('phoneSmallestTextPx', least);
+        if (small.length) throw new Error(`text under ${MIN_TEXT_PX} px: ${small.slice(0, 5).join(', ')}`);
+        event('phone-text', `smallest ${least} px across ${n} pieces, no sideways scroll`);
+        return `scrollWidth ${doc.documentElement.scrollWidth} in ${win.innerWidth} px; smallest text ${least} px`;
+      });
+      await check('No button sits on the joystick ring; the info panel is one line', async () => {
+        probe.hud.classList.remove('open');
+        await wait(50);
+        const line = probe.hud.querySelector('.line'), lh = parseFloat(probe.style(line).lineHeight) || 20;
+        const hr = R(probe.hud), mr = R(probe.mute), sr = R(probe.stick);
+        if (hr.height > lh * 1.6 + 12) throw new Error(`the collapsed panel is ${Math.round(hr.height)} px tall, more than one line`);
+        if (line.scrollWidth > line.clientWidth + 1) throw new Error('the title line is cut off');
+        if (hits(mr, sr)) throw new Error(`the sound button overlaps the joystick (${Math.round(mr.left)},${Math.round(mr.top)} vs stick ${Math.round(sr.left)},${Math.round(sr.top)})`);
+        if (hits(hr, sr)) throw new Error('the info panel overlaps the joystick');
+        event('phone-layout', `panel ${Math.round(hr.width)}x${Math.round(hr.height)}, mute clear of stick at ${Math.round(mr.left)},${Math.round(mr.top)}`);
+        setScene('Phone layout');
+        await wait(200);   // let the runner screenshot this scene
+        return `one-line panel ${Math.round(hr.height)} px, mute at bottom-right, no overlap with the ${Math.round(sr.width)} px stick`;
+      });
+      // Drag the stick: character must move the way the finger moves (right → +x, up → +z).
+      const drag = async (label, dx, dy, expect) => {
+        await until(() => probe.speed() < 0.01, 5000, 'the player to stand still');
+        const from = probe.pos(), r = R(probe.stick), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        ptr('pointerdown', cx, cy);
+        ptr('pointermove', cx + dx * (r.width / 2), cy + dy * (r.height / 2));
+        await sample(850, () => {});
+        const to = probe.pos();
+        ptr('pointerup', cx, cy);
+        await until(() => probe.speed() < 0.01, 4000, 'the player to stop after the stick was let go');
+        const moved = { x: to.x - from.x, z: to.z - from.z };
+        if (expect.x !== 0 && Math.sign(moved.x) !== Math.sign(expect.x)) throw new Error(`drag ${label}: wanted x ${expect.x > 0 ? '>' : '<'} 0, got Δx ${moved.x.toFixed(2)}`);
+        if (expect.z !== 0 && Math.sign(moved.z) !== Math.sign(expect.z)) throw new Error(`drag ${label}: wanted z ${expect.z > 0 ? '>' : '<'} 0, got Δz ${moved.z.toFixed(2)}`);
+        if (Math.hypot(moved.x, moved.z) < 1.2) throw new Error(`drag ${label}: moved only ${Math.hypot(moved.x, moved.z).toFixed(2)}`);
+        if (probe.knob.style.transform) throw new Error('the knob did not return to the centre');
+        event('joystick-drag', `${label}: Δ(${moved.x.toFixed(1)}, ${moved.z.toFixed(1)})`);
+        return moved;
+      };
+      await check('Dragging the joystick moves the character in that direction', async () => {
+        setScene('Phone joystick');
+        const right = await drag('right', 1, 0, { x: 1, z: 0 });
+        const up = await drag('up', 0, -1, { x: 0, z: 1 });
+        metric('phoneJoyRightX', Math.round(right.x * 10) / 10);
+        metric('phoneJoyUpZ', Math.round(up.z * 10) / 10);
+        await wait(300);
+        return `right Δx ${right.x.toFixed(1)}, up Δz ${up.z.toFixed(1)}`;
+      });
+  };
   // The three feel checks (movement, camera, touch stick) with real key and pointer input; shared by smoke and the 'feel' scenario.
   const feelChecks = async ({ check, until, wait, event = () => {} }) => {
       const sample = async (ms, f) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { f(); await wait(16); } f(); };
@@ -454,6 +555,44 @@
           return `${r.metrics.checksPassed} checks passed, second player joined in ${r.metrics.secondJoinMs} ms`;
         });
         frame.remove();
+      },
+    }, {
+      id: 'phone', title: 'Phone at 390x844: joystick moves you, no overlap, one-line panel', seconds: 50, tags: ['full', 'phone'],
+      description: 'Honest phone playtest: runs on a 390x844 surface with touch pointer events (in-page when the runner is already phone-sized, otherwise a same-origin phone frame). Drags the on-screen joystick and asserts the capsule moves that way; asserts the Sound button does not overlap the stick, the info panel is one line, there is no sideways scroll, and text is at least 12 px. Emits Phone / Phone layout / Phone joystick scenes for screenshots.',
+      run: async ({ check, event, scene: setScene, until, wait, metric, progress }) => {
+        await until(() => scene.isReady() && me && window.__hawkesDemoProbe?.ready(), 20000, 'the demo to be ready');
+        let frame = null, target = window, probe = window.__hawkesDemoProbe;
+        try {
+          if (!atPhoneSize()) {
+            // Desktop runner: a real 390x844 frame at the origin (no CSS scale) so pointer clientX/Y match the frame's stick math.
+            // Studio's :phone twin uses the in-page path below; this path keeps phone@desktop honest too.
+            frame = document.createElement('iframe');
+            frame.title = 'Phone 390x844';
+            frame.style.cssText = `position:fixed;left:0;top:0;width:${PHONE_W}px;height:${PHONE_H}px;border:0;background:#0e1116;z-index:80`;
+            // No ?playtest= so the frame does not nest another phone run; keep room/project/net from this page.
+            const u = new URL(location.href);
+            u.searchParams.delete('playtest');
+            u.searchParams.set('touch', '1');
+            frame.src = u.href;
+            document.body.appendChild(frame);
+            event('phone-frame', `opened ${PHONE_W}x${PHONE_H} frame at origin`);
+            await until(() => {
+              try { return frame.contentWindow?.__hawkesDemoProbe?.ready(); } catch { return false; }
+            }, 30000, 'the phone frame to load the demo');
+            target = frame.contentWindow;
+            probe = target.__hawkesDemoProbe;
+          } else {
+            event('phone-native', `runner viewport is already ${innerWidth}x${innerHeight}`);
+          }
+          progress(0.15);
+          await phoneChecks({
+            check, until, wait, event, metric, scene: setScene,
+            win: target, doc: target.document, probe,
+          });
+          progress(1);
+        } finally {
+          if (frame) frame.remove();
+        }
       },
     }, {
       id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 40, tags: ['full'],

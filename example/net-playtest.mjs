@@ -34,7 +34,8 @@ export function installNetPlaytest(o) {
       description: 'Run with Studio peers 2-4: each browser waits for another player in its ?room=, moves by real input, checks it sees the other move and that messages go both ways.' },
   ];
   // A page may add scenarios of its own: o.scenarios = [{ id, title, seconds, tags, description, run: async (c) => {} }], where c has
-  // check, event, until, wait, metric, progress, options and finish-by-return (the run is won when every check passed).
+  // check, event, scene, until, wait, metric, progress, options and finish-by-return (the run is won when every check passed).
+  // scene(name) sets state.scene so the runner screenshots each named place.
   const custom = o.scenarios ?? [];
   for (const s of custom) scenarios.push({ id: s.id, title: s.title, seconds: s.seconds, tags: s.tags, description: s.description });
   const STALL = 60;
@@ -61,6 +62,7 @@ export function installNetPlaytest(o) {
   const problem = (severity, message) => { if (!run || run.problems.some((p) => p.message === message)) return; run.problems.push({ severity, message }); event('problem', `${severity}: ${message}`); };
   const log = (line) => { if (run) { run.log.push(`${r1(now())}s ${line}`); if (run.log.length > 200) run.log.shift(); } };
   const progress = (p) => { if (run) { run.state.progress = Math.max(0, Math.min(1, p)); run.moved = performance.now(); } };
+  const scene = (name) => { if (run) { run.state.scene = String(name); event('scene', name); } };
   const finish = (outcome) => {
     if (!run || run.done) return;
     run.done = true; run.state.status = outcome; run.seconds = now();
@@ -262,7 +264,7 @@ export function installNetPlaytest(o) {
       try {
         if (!sc) { problem('bug', `no playtest scenario "${id}" (have: ${scenarios.map((s) => s.id).join(', ')})`); return finish('error'); }
         const mineCustom = custom.find((s) => s.id === id);
-        if (mineCustom) { await mineCustom.run({ check, event, until, wait, metric, progress, options: run.options, step }); progress(1); finish(run.lines.every((l) => l.ok) ? 'won' : 'lost'); }
+        if (mineCustom) { await mineCustom.run({ check, event, scene, until, wait, metric, progress, options: run.options, step }); progress(1); finish(run.lines.every((l) => l.ok) ? 'won' : 'lost'); }
         else await (id === 'two-players' ? twoPlayers() : smoke());
       } catch (e) {
         if (mine === run && !mine.done) { problem('bug', `bot error: ${e?.message ?? e}`); log(String(e?.stack ?? e)); finish('error'); }
