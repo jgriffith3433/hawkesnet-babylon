@@ -185,7 +185,7 @@ export function installNetPlaytest(o) {
       return `round trip ${a} ms / ${b} ms`;
     });
     progress(0.8);
-    if (o.extra) await o.extra({ check, main, bot, until, wait, metric, roundTrips: (f, w, t) => roundTrips(f, w, t) });
+    if (o.extra) await o.extra({ check, main, bot, until, wait, metric, event, roundTrips: (f, w, t) => roundTrips(f, w, t) });
     await check('The second player left and this page saw it', async () => {
       const id = bot.id;
       await bot.leave();
