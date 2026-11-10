@@ -24,5 +24,6 @@ over `@hawkesgen/net` (the hawkesnet repo's `sdk/js`). One file, `hawkes-net-bab
   drags the joystick and asserts the capsule moves that way, and checks no button overlaps the stick, a one-line info
   panel, no sideways scroll and text ≥ 12 px; `feel` checks eased movement, the eased follow camera and the touch
   joystick (setup option `touch`, default true); smoke runs the feel checks too. Scenario list: `smoke`, `two-players`,
-  `phone`, `feel` (plus `quickstart`, `demo-boot`). The same net-playtest file lives in hawkesnet-js and hawkesnet
-  (`public/demo-playtest.mjs`): change all three.
+  `phone`, `feel` (plus `quickstart`, `demo-boot`). `two-players` (and smoke’s `extra`) also run the host-authoritative
+  orb collect checks via `afterTwoPlayers` / `example/orbs-playtest.mjs`. The same net-playtest file lives in
+  hawkesnet-js and hawkesnet (`public/demo-playtest.mjs`): change all three.

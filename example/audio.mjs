@@ -4,7 +4,7 @@
 // until the first pointer, key or touch; sounds asked for before then are dropped (counted, never queued).
 export function createAudio({ storageKey = 'hawkes-net-babylon:muted', target = globalThis } = {}) {
   const store = (() => { try { return target.localStorage ?? null; } catch { return null; } })();
-  const stats = { gestureAt: 0, contextAt: 0, steps: 0, chimes: 0, leaves: 0, droppedBeforeGesture: 0, silenced: 0 };
+  const stats = { gestureAt: 0, contextAt: 0, steps: 0, chimes: 0, leaves: 0, collects: 0, droppedBeforeGesture: 0, silenced: 0 };
   let muted = false;
   try { muted = store?.getItem(storageKey) === '1'; } catch { /* private mode: not remembered */ }
   let ctx = null, master = null;
@@ -109,6 +109,14 @@ export function createAudio({ storageKey = 'hawkes-net-babylon:muted', target = 
       return play('leaves', (c, out) => {
         const t = c.currentTime;
         tone(c, out, 587.3, t, 0.7, 0.1); tone(c, out, 392, t + 0.16, 1, 0.1);
+      });
+    },
+    /** A bright rising ping: you collected a glowing orb. */
+    collect() {
+      return play('collects', (c, out) => {
+        const t = c.currentTime;
+        tone(c, out, 880, t, 0.16, 0.14); tone(c, out, 1320, t + 0.05, 0.22, 0.11);
+        tone(c, out, 1760, t + 0.1, 0.35, 0.08);
       });
     },
     /** Stop listening for gestures and close the sound (for tests that make their own). */
