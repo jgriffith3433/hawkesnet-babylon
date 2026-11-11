@@ -17,11 +17,15 @@ The **glowing ring** on the floor at the centre — visible from the edge pillar
 ## What happens
 
 - Walk with WASD or the touch joystick; footsteps while moving, silence when still.
-- Wave (E); a chime when someone joins, a short farewell when they leave.
+- Wave (E, or the round 👋 button on a touch screen): the robot raises its arm and waves as a layer over whatever its legs are doing, on both tabs, then eases back to its base pose. A chime when someone joins, a short farewell when they leave.
 - A shared crate at the ring spins when you host it.
 - Walk into a glowing orb: a collect ping, your score rises on everyone’s HUD (top-right), and the host respawns that orb elsewhere on the court. Scores are keyed by stable peer id and survive host migration.
 - Ambient: dusk sky, torch flicker on the stone, soft fog, bobbing orb glow.
 - Phone: Sound sits bottom-right, clear of the stick; the info line expands on tap; the score HUD stays top-right.
+
+## Avatars and nameplates
+
+Every player is the same small robot, tinted by their colour. It blends Idle, Walking and Running by the speed it is really moving at, and the walk's playback rate follows the ground, so the foot that is down stays put (the playtest measures it: under 5 cm/s). The name above it is a billboard: it copies the camera's rotation, so it reads the right way round from every side, and it keeps about 22 px of text on screen at any distance, phone included.
 
 ## Story beats
 

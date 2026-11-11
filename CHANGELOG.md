@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Nameplates are real billboards:** new `billboards(scene, BABYLON, { textPx })` copies the camera's rotation onto every mesh with `metadata.hnBillboard` (no `LookAt`, no negative scale, steady on-screen text size); `multiplayer()` and `defaultAvatar` use it.
+- **`emoteArm` option:** `false` lets a rigged avatar play its own wave clip on `onPresence` instead of the box arm.
+- **Demo:** the robot blends Idle / Walking / Running by speed with the playback rate set per stride phase so the planted foot stays put, waves as an upper-body layer that blends back, a 56 px Wave button on touch, and an `avatars` playtest scenario (planted-foot speed, wave on both tabs, 360-degree nameplate orbit, phone wave button and text size).
 - **Away players:** faded to 40%, new `onAway(node, away, peer)` option, `away`/`back` presence events, `peer.extra` passed to `avatar`.
 - **Demo:** Reconnecting banner and a frozen character while the connection is down, name and colour kept in sessionStorage, `hawkesPlaytest.dropFor(ms)` and a `reconnect` scenario.
 

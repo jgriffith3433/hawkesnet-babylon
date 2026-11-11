@@ -30,6 +30,8 @@ export interface MultiplayerOptions extends Partial<LobbyOptions> {
   /** Or your pose yourself: position, yaw (radians) and any small extra values. */
   getPose?: () => { position: [number, number, number] | number[]; yaw?: number; extra?: Record<string, unknown> | null } | null;
   /** How others look: a node for a player (default: a capsule in their color with their name). */
+  /** Show a wave as a raised arm on the avatar (default true). Set false when your avatar plays its own wave clip (react to `onPresence`). */
+  emoteArm?: boolean;
   /** Key presses that emote for everyone to see (default `{ e: 'wave' }`; `false` for none). */
   emoteKeys?: Record<string, EmoteKind> | false;
   /** Called when a player's away state changes (show "away" on the nameplate). The module fades the avatar to 40% itself. */
@@ -44,6 +46,8 @@ export interface PresenceEvent { type: 'spawn' | 'leave' | 'emote' | 'away' | 'b
 
 /** A playing emote on a node (a raised, swinging arm). multiplayer() drives it; otherwise call update(performance.now()) each frame. */
 export interface PlayingEmote { kind: EmoteKind; done: boolean; update(now: number): void; dispose(): void }
+/** Nameplate billboards: meshes with `metadata.hnBillboard` copy the camera's rotation each frame and keep a steady on-screen text size (`textPx`, default 22). `multiplayer()` installs it; returns off(). */
+export declare function billboards(scene: any, BABYLON: any, opt?: { textPx?: number; minScale?: number; maxScale?: number }): () => void;
 export declare function playEmote(node: BabylonNode, kind: EmoteKind, BABYLON: any, scene: any): PlayingEmote;
 
 export interface Shared {
@@ -85,5 +89,5 @@ export declare function multiplayer(scene: any, o: MultiplayerOptions): Multipla
 /** The default avatar: a capsule in the player's color with their name over it. */
 export declare function defaultAvatar(peer: { id: string; name: string }, BABYLON: any, scene: any): BabylonNode;
 
-declare const _default: { multiplayer: typeof multiplayer; defaultAvatar: typeof defaultAvatar; VERSION: string };
+declare const _default: { multiplayer: typeof multiplayer; defaultAvatar: typeof defaultAvatar; billboards: typeof billboards; VERSION: string };
 export default _default;
