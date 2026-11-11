@@ -15,7 +15,7 @@ export { background, inBackground };
 export const VERSION = '0.2.0';
 
 const POSE_MS = 50;
-const AWAY_ALPHA = 0.35;
+const AWAY_ALPHA = 0.4;
 const yawOf = (node) => {
   if (node.rotationQuaternion) {
     const q = node.rotationQuaternion;
@@ -93,13 +93,14 @@ export function playEmote(node, kind, B, scene) {
  *   project, name, area ('lobby'), liveHosts ([]), prefix, endpoint, transport ('relay'), key (servers and tests only),
  *   player (the mesh or node whose place and heading are yours; or getPose: () => ({ position: [x, y, z], yaw, extra })),
  *   avatar ((peer, BABYLON, scene) => a node: how others look; default a capsule with their name),
+ *   onAway ((node, away, peer) => void: the game shows "away" its own way, e.g. on the nameplate; the module also fades the avatar to 40%),
  *   emoteKeys ({ e: 'wave' }: a key press that emotes, seen by everyone; false for none; mp.emote('wave') does it by code),
  *   ... any other lobby / join option }
  */
 export function multiplayer(scene, o = {}) {
   const B = o.babylon ?? globalThis.BABYLON;
   if (!B) throw new Error('hawkes-net-babylon: pass { babylon: BABYLON } (import * as BABYLON from "@babylonjs/core")');
-  const { babylon, area = 'lobby', player, getPose, avatar = defaultAvatar, emoteKeys = { e: 'wave' }, ...rest } = o;
+  const { babylon, area = 'lobby', player, getPose, avatar = defaultAvatar, emoteKeys = { e: 'wave' }, onAway, ...rest } = o;
   // (An option given as undefined, `endpoint: q.get('net') || undefined`, must not override the SDK's default.)
   const join = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
   const lobby = makeLobby({ transport: 'relay', ...join });
@@ -109,7 +110,7 @@ export function multiplayer(scene, o = {}) {
   let poseAt = 0;
   const leaving = new Map(); // id -> { node, t0 }: avatars fading out
   const emotes = new Set(); // playing emotes
-  const presence = []; // the last events: { type: 'spawn' | 'leave' | 'emote', id, name, emote?, at }
+  const presence = []; // the last events: { type: 'spawn' | 'leave' | 'emote' | 'away' | 'back', id, name, emote?, at }
   const presenceFns = new Set();
   const note = (type, id, name, emote) => {
     const ev = { type, id, name, ...(emote ? { emote } : {}), at: Date.now() };
@@ -129,6 +130,7 @@ export function multiplayer(scene, o = {}) {
   };
   const setAway = (p) => {
     if (!p.node) return;
+    if (p.shownAway !== p.away) { p.shownAway = p.away; try { onAway?.(p.node, p.away, { id: p.id, name: p.name }); } catch { /* the game's hook */ } }
     const f = p.spawnAt ? Math.min(1, (performance.now() - p.spawnAt) / SPAWN_MS) : 1;
     for (const m of meshesOf(p.node)) m.visibility = (p.away ? AWAY_ALPHA : 1) * f;
   };
@@ -152,7 +154,7 @@ export function multiplayer(scene, o = {}) {
     note('leave', id, p.name);
   };
   const spawn = (p) => {
-    p.node = avatar({ id: p.id, name: p.name }, B, scene);
+    p.node = avatar({ id: p.id, name: p.name, extra: p.extra }, B, scene);
     p.spawnAt = performance.now();
     p.baseScale = p.node.scaling ? p.node.scaling.clone() : null;
     setAway(p);
@@ -173,7 +175,12 @@ export function multiplayer(scene, o = {}) {
     }),
     lobby.when('peer:join', (peer) => { const p = ensure(peer.id); p.name = peer.name ?? p.name; }),
     lobby.when('peer:leave', ({ peer }) => drop(peer.id)),
-    lobby.when('peer:away', ({ peer, away }) => { const p = peers.get(peer.id); if (p) { p.away = away; setAway(p); } }),
+    // The server marks a dropped player away at once and removes them after its 15 s grace (then the leave fade).
+    lobby.when('peer:away', ({ peer, away }) => {
+      const p = peers.get(peer.id);
+      if (!p) return;
+      p.away = away; setAway(p); note(away ? 'away' : 'back', p.id, p.name);
+    }),
     lobby.when('left', () => { for (const id of [...peers.keys()]) drop(id, true); }),
     lobby.on('hn-emote', (d, from) => {
       const kind = EMOTES.includes(d?.e) ? d.e : null;
@@ -275,7 +282,7 @@ export function multiplayer(scene, o = {}) {
     lobby,
     /** Play an emote ('wave') on your player; everyone else sees it on your avatar. False inside the short cooldown. */
     emote: doEmote,
-    /** fn({ type: 'spawn' | 'leave' | 'emote', id, name, emote?, at }) as players pop in, fade out and wave (yours too). Returns off(). */
+    /** fn({ type: 'spawn' | 'leave' | 'emote' | 'away' | 'back', id, name, emote?, at }) as players pop in, fade out and wave (yours too). Returns off(). */
     onPresence: (fn) => { presenceFns.add(fn); return () => presenceFns.delete(fn); },
     /** The last 50 presence events. */
     presence,
