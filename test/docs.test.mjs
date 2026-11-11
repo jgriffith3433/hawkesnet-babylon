@@ -44,6 +44,17 @@ test('the demo page links to the README', () => {
   assert.match(fs.readFileSync(new URL('example/index.html', root), 'utf8'), /<a id="readme" href="[^"]*#readme"/);
 });
 
+test('smoke scene audit reports floating/sunk/zfight/insideOut/cameraInside and fails a lifted crate by name', () => {
+  const html = fs.readFileSync(new URL('example/index.html', root), 'utf8');
+  assert.match(html, /scene-audit\.mjs/);
+  for (const key of ['floating', 'sunk', 'zfight', 'insideOut', 'cameraInside']) {
+    assert.ok(html.includes(`'${key}'`) || html.includes(`"${key}"`) || html.includes(`metric?.('${key}'`) || html.includes(`metric('${key}'`), `reports metric ${key}`);
+  }
+  assert.match(html, /Scene audit: a prop lifted off the ground fails by name/);
+  assert.match(html, /20 s camera orbit stays outside every solid/);
+  assert.match(fs.readFileSync(new URL('example/scene-audit.mjs', root), 'utf8'), /export function auditScene/);
+});
+
 test('the feel scenario measures rule-11 metrics, enforces targets, and marks start/turn/stop clips', () => {
   const html = fs.readFileSync(new URL('example/index.html', root), 'utf8');
   for (const key of ['inputDelayMs', 'timeToFullSpeedMs', 'stopTimeMs', 'cameraLagPeak', 'cameraMaxJump', 'cameraInsideGeometry', 'fovDegrees', 'feel.inputLatencyMs', 'feel.cameraClipSeconds']) {

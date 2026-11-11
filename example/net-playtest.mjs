@@ -36,6 +36,8 @@ export function installNetPlaytest(o) {
   // A page may add scenarios of its own: o.scenarios = [{ id, title, seconds, tags, description, run: async (c) => {} }], where c has
   // check, event, scene, until, wait, metric, progress, options and finish-by-return (the run is won when every check passed).
   // scene(name) sets state.scene so the runner screenshots each named place.
+  // o.seconds = { smoke: 100 } overrides a built-in scenario's estimate (this demo's smoke runs a 20 s camera orbit).
+  if (o.seconds) for (const s of scenarios) if (o.seconds[s.id] != null) s.seconds = o.seconds[s.id];
   const custom = o.scenarios ?? [];
   for (const s of custom) scenarios.push({ id: s.id, title: s.title, seconds: s.seconds, tags: s.tags, description: s.description });
   const STALL = 60;
