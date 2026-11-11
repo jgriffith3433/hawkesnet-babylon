@@ -278,7 +278,13 @@
     const { min, max } = holder.getHierarchyBoundingVectors(true);
     const k = 1.8 / Math.max(0.01, max.y - min.y);
     holder.scaling.setAll(k); holder.position.y = -min.y * k;
-    const g = {}; for (const a of inst.animationGroups) { a.stop(); g[a.name] = a; }
+    // instantiateModelsToScene's nameFunction also renames AnimationGroups (hn-body-<id>-Idle), so index by the short clip name.
+    const prefix = `hn-body-${id}-`;
+    const g = {};
+    for (const a of inst.animationGroups) {
+      a.stop();
+      g[a.name.startsWith(prefix) ? a.name.slice(prefix.length) : a.name] = a;
+    }
     const c = { root, g, cur: null, last: null, waveUntil: 0 };
     chars.add(c); root.onDisposeObservable.add(() => chars.delete(c));
     play(c, 'Idle');
