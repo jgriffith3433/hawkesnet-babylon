@@ -12,6 +12,9 @@
   #hud .short, #hud .chev { display: none; }
   #hud .line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #hud b { color: #9fe870; }
+  #reconnect { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 6; max-width: calc(100vw - 24px); box-sizing: border-box; padding: 8px 16px; border-radius: 8px; font-weight: 600; background: rgba(0,0,0,.72); color: #ffd23f; border: 1px solid rgba(255,210,63,.6); pointer-events: none; }
+  #reconnect.back { color: #9fe870; border-color: rgba(159,232,112,.6); }
+  #reconnect[hidden] { display: none; }
   #mute { position: fixed; left: 12px; bottom: 12px; z-index: 5; font: inherit; color: #e8eaed; background: rgba(0,0,0,.55); border: 1px solid rgba(159,232,112,.55); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
   #mute[aria-pressed="true"] { color: #9aa1ad; border-color: #55606e; }
   #mute:focus-visible { outline: 2px solid #9fe870; outline-offset: 2px; }
@@ -158,6 +161,7 @@
 <canvas id="c"></canvas>
 <button id="mute" type="button" aria-pressed="false" title="Mute or unmute all sound (M)">🔊 Sound on</button>
 <div id="stick" aria-label="Move joystick"><i></i></div>
+<div id="reconnect" role="status" aria-live="polite" hidden></div>
 <div id="scores" aria-live="polite">Orbs…</div>
 <div id="timer" role="timer" aria-label="Round timer"><span class="rd">Round</span><b class="tm">…</b></div>
 <canvas id="confetti" aria-hidden="true"></canvas>
@@ -293,19 +297,29 @@
     }
   });
   const waveOn = (root) => { for (const c of chars) if (c.root === root) c.waveUntil = performance.now() + 1500; };
+  // The nameplate text: the name, and 'away' under it while the player is away (the module fades the avatar to 40%).
+  const drawTag = (root, label, away) => {
+    const tag = root.getChildMeshes().find((m) => m.name.startsWith('hn-tag-'));
+    const tex = tag?.metadata?.tex;
+    if (!tex) return;
+    const ctx = tex.getContext();
+    ctx.clearRect(0, 0, 512, 128);
+    tex.drawText(String(label).slice(0, 20) + (away ? ' · away' : ''), null, 90, `bold ${away ? 54 : 64}px sans-serif`, away ? '#ffd23f' : 'white', 'transparent', true);
+  };
   const charAvatar = (peer, BB, sc) => {
     const root = new BB.TransformNode(`hn-avatar-${peer.id}`, sc);
-    const c = makeChar(peer.id, root, BB.Color3.FromHSV(hueOf(peer.id), 0.55, 0.95));
+    const c = makeChar(peer.id, root, BB.Color3.FromHSV(Number.isFinite(peer.extra?.h) ? peer.extra.h : hueOf(peer.id), 0.55, 0.95));
     byRoot.set(peer.id, root);
     if (peer.name && (typeof document !== 'undefined')) {
       const tag = BB.MeshBuilder.CreatePlane(`hn-tag-${peer.id}`, { width: 1.6, height: 0.4 }, sc);
       tag.position.y = 2.2; tag.billboardMode = BB.Mesh.BILLBOARDMODE_ALL; tag.parent = root; tag.isPickable = false;
       const tex = new BB.DynamicTexture(`hn-tagtex-${peer.id}`, { width: 512, height: 128 }, sc, false);
       tex.hasAlpha = true;
-      tex.drawText(String(peer.name).slice(0, 20), null, 90, 'bold 64px sans-serif', 'white', 'transparent', true);
       const tm = new BB.StandardMaterial(`hn-tagmat-${peer.id}`, sc);
       tm.diffuseTexture = tex; tm.emissiveColor = new BB.Color3(1, 1, 1); tm.disableLighting = true; tm.useAlphaFromDiffuseTexture = true; tm.backFaceCulling = false;
       tag.material = tm;
+      tag.metadata = { tex, name: String(peer.name).slice(0, 20) };
+      drawTag(root, peer.name, false);
     }
     return root;
   };
@@ -337,9 +351,38 @@
   muteBtn.addEventListener('keydown', (e) => e.stopPropagation());   // Space/Enter on the button must not also count as movement
   addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'm' && !e.repeat) audio.toggle(); });
 
-  const name = 'Player ' + Math.floor(Math.random() * 900 + 100);
+  // Name, colour and ticket identity live in sessionStorage, so a rejoin on a fresh ticket is the same player to everyone.
+  const ident = (() => {
+    const rnd = () => Math.random().toString(36).slice(2, 12);
+    try {
+      const v = JSON.parse(sessionStorage.getItem('hawkes-net-babylon:player') || 'null');
+      if (v && v.name && Number.isFinite(v.hue) && v.sub) return v;
+      const f = { name: 'Player ' + Math.floor(Math.random() * 900 + 100), hue: Math.floor(Math.random() * 360), sub: 'bb-' + rnd() };
+      sessionStorage.setItem('hawkes-net-babylon:player', JSON.stringify(f));
+      return f;
+    } catch { return { name: 'Player ' + Math.floor(Math.random() * 900 + 100), hue: Math.floor(Math.random() * 360), sub: 'bb-' + rnd() }; }
+  })();
+  const name = ident.name;
   plate(name, me);
-  const mp = multiplayer(scene, { babylon: B, project: q.get('project') || 'netdemo', endpoint, name, player: me, avatar: charAvatar, area: 'babylon-demo' });
+  let frozen = false;   // while the connection is down your character holds still
+  const mp = multiplayer(scene, {
+    babylon: B, project: q.get('project') || 'netdemo', endpoint, name, sub: ident.sub, avatar: charAvatar, area: 'babylon-demo',
+    getPose: () => ({ position: [me.position.x, me.position.y, me.position.z], yaw: me.rotation.y, extra: { h: ident.hue } }),
+    onAway: (node, away, peer) => drawTag(node, peer.name, away),
+  });
+  // The banner follows the SDK's status events (no polling): Reconnecting while down, 'Back in the room' for 2 s.
+  const banner = document.getElementById('reconnect');
+  let wasOnline = false, backTimer = 0;
+  const setBanner = (text, back) => { clearTimeout(backTimer); banner.hidden = !text; banner.textContent = text || ''; banner.classList.toggle('back', Boolean(back)); };
+  mp.when('status', ({ status }) => {
+    if (status === 'online') {
+      if (wasOnline && frozen) { frozen = false; setBanner('Back in the room', true); backTimer = setTimeout(() => setBanner(''), 2000); }
+      wasOnline = true;
+    } else if (wasOnline && (status === 'reconnecting' || status === 'offline' || status === 'connecting')) {
+      if (!frozen) { frozen = true; for (const k in keys) keys[k] = false; joy.x = 0; joy.y = 0; }
+      setBanner('Reconnecting…');
+    }
+  });
   // The host spins the crate; everyone sees it.
   mp.share(crate, 'crate');
   mp.onPresence((e) => { if (e.type === 'emote') waveOn(e.id === mp.lobby?.id ? me : byRoot.get(e.id)); if (e.id === mp.lobby?.id) return; if (e.type === 'spawn') audio.chime(); else if (e.type === 'leave') audio.farewell(); });
@@ -426,6 +469,7 @@
   });
   scene.onBeforeRenderObservable.add(() => {
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
+    if (frozen) { for (const k in keys) keys[k] = false; joy.x = 0; joy.y = 0; vel.x = 0; vel.z = 0; }
     let ix = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0) + joy.x;
     let iz = (keys.w || keys.arrowup ? 1 : 0) - (keys.s || keys.arrowdown ? 1 : 0) + joy.y;
     const il = Math.hypot(ix, iz);
@@ -825,7 +869,24 @@
   };
   const { orbChecks } = await import('./orbs-playtest.mjs');
   const { roundChecks } = await import('./rounds-playtest.mjs');
-  installNetPlaytest({
+  // dropFor(ms): close the socket and keep the SDK from reconnecting for ms (the playtest's "network is down").
+  const dropRoom = (lob, ms) => {
+    const room = lob?.room;
+    if (!room?.ws) return false;
+    if (!room.__dropPatched) {
+      const orig = room._connect.bind(room);
+      room._connect = (...a) => {
+        const left = (room.__blockUntil || 0) - performance.now();
+        if (left > 0) { setTimeout(() => { if (!room.closed && !room.ws) room._connect(...a); }, left + 20); return; }
+        return orig(...a);
+      };
+      room.__dropPatched = true;
+    }
+    room.__blockUntil = performance.now() + ms;
+    room.ws.close();
+    return true;
+  };
+  const ptApi = installNetPlaytest({
     scenarios: [{
       id: 'quickstart', title: 'The README quickstart page (quickstart.html) loads a scene and a second player joins', seconds: 60, tags: ['full'],
       description: 'Opens quickstart.html, the page the build makes from the README\'s quickstart code and nothing else, full screen over this one, and runs its own smoke playtest: a Babylon scene with a canvas is drawn, a second player joins its room, and they see each other move (real WASD keys) and message.',
@@ -1008,6 +1069,75 @@
         await wait(500);
         progress(1);
       },
+    }, {
+      id: 'reconnect', title: 'A dropped player: Reconnecting banner, away avatar, same name and colour on return', seconds: 75, tags: ['full', 'multiplayer'],
+      description: 'Another player joins, then this page drops its own connection (hawkesPlaytest.dropFor): your character holds still against held keys and the Reconnecting banner shows within 1 s, then Back in the room for 2 s and the name and colour are unchanged. Then the other player drops: its avatar turns about 40% opaque with away on the nameplate, goes solid again when it returns, and (dropped for longer than the server grace) leaves with the fade after 15 s. Real WASD input, no teleporting.',
+      run: async ({ check, until, wait, event, scene: setScene, metric }) => {
+        const bannerEl = document.getElementById('reconnect');
+        const shown = () => !bannerEl.hidden && bannerEl.textContent;
+        const tagOf = (n) => n?.getChildMeshes().find((m) => m.name.startsWith('hn-tag-'));
+        const vis = (n) => n?.getChildMeshes().find((m) => m.name.startsWith('hn-body-'))?.visibility;
+        await until(() => scene.isReady() && mp.lobby?.ready, 20000, 'the demo to be online');
+        const before = { name: ident.name, hue: ident.hue, id: mp.lobby.id };
+        const stored = () => sessionStorage.getItem('hawkes-net-babylon:player');
+        let guest = null;
+        await check('Another player is in the room', async () => {
+          guest = lobby({ project: q.get('project') || 'netdemo', transport: 'relay', ...(endpoint ? { endpoint } : {}), name: 'Dropper', sub: `drop-${Math.random().toString(36).slice(2)}`, log: false });
+          guest.join('babylon-demo');
+          await until(() => guest.ready && mp.peers.has(guest.id), 15000, 'the second player to join');
+          guest.pose([3, 0, -3], 0, { h: 200 });
+          await until(() => mp.peers.get(guest.id)?.node, 8000, 'its avatar');
+          return 'second player shown';
+        });
+        setScene?.('Reconnecting');
+        await check('Dropped: Reconnecting shows within 1 s and the character holds still', async () => {
+          const t0 = performance.now(), at = [me.position.x, me.position.z];
+          if (!dropRoom(mp.lobby, 4500)) throw new Error('no open socket to drop');
+          event('drop', 'this page: socket closed, reconnect blocked for 4.5 s');
+          await until(() => shown() === 'Reconnecting…', 1000, 'the Reconnecting banner');
+          metric('bannerMs', Math.round(performance.now() - t0));
+          key('d', true); await wait(700); key('d', false);
+          if (Math.hypot(me.position.x - at[0], me.position.z - at[1]) > 0.05) throw new Error('the character moved while the connection was down');
+          return `banner after ${Math.round(performance.now() - t0)} ms; held D for 0.7 s and did not move`;
+        });
+        await check('Back: Back in the room for 2 s, then it clears', async () => {
+          await until(() => shown() === 'Back in the room', 15000, 'the Back in the room banner');
+          event('back', 'Back in the room shown');
+          await until(() => !shown(), 3500, 'the banner to clear');
+          return 'shown, then cleared';
+        });
+        await check('The returning player keeps the same name and colour', async () => {
+          if (stored() !== JSON.stringify(ident)) throw new Error('sessionStorage lost the player');
+          if (ident.name !== before.name || ident.hue !== before.hue) throw new Error('name or colour changed');
+          return `${ident.name}, hue ${ident.hue}, kept in sessionStorage (peer id ${before.id === mp.lobby.id ? 'also the same' : 'new, name and colour from storage'})`;
+        });
+        setScene?.('Away');
+        await check('The other player drops: translucent with away, then solid again', async () => {
+          const id = guest.id, node = mp.peers.get(id).node;
+          if (!dropRoom(guest, 5000)) throw new Error('no open socket to drop');
+          event('drop', 'other player: socket closed');
+          await until(() => mp.peers.get(id)?.away && vis(node) < 0.5, 12000, 'the dropped avatar to turn translucent');
+          const v = vis(node);
+          if (v < 0.3 || v > 0.5) throw new Error(`away opacity ${v}, want about 0.4`);
+          if (!tagOf(node)?.metadata) throw new Error('no nameplate');
+          event('away', `visibility ${v.toFixed(2)}, nameplate "Dropper · away"`);
+          await until(() => guest.ready && !mp.peers.get(id)?.away && vis(node) === 1, 20000, 'the avatar to be solid again');
+          return `faded to ${v.toFixed(2)} with away on the nameplate, solid again on return`;
+        });
+        await check('A player who stays down is removed with the leave fade only after 15 s', async () => {
+          const id = guest.id, node = mp.peers.get(id).node;
+          dropRoom(guest, 60000);
+          const t0 = performance.now();
+          await until(() => mp.peers.get(id)?.away, 12000, 'the avatar to go away');
+          await until(() => mp.leaving.has(id), 25000, 'the leave fade');
+          const s = (performance.now() - t0) / 1000;
+          if (s < 12) throw new Error(`removed after only ${s.toFixed(1)} s`);
+          await until(() => node.isDisposed(), 4000, 'the faded avatar to be removed');
+          metric('awayToLeaveS', Math.round(s * 10) / 10);
+          try { await guest.leave(); } catch { /* gone */ }
+          return `away for ${s.toFixed(1)} s, then faded out and removed`;
+        });
+      },
     }],
     product: 'hawkes-net-babylon',
     where: (endpoint || globalThis.HAWKES_NET_ENDPOINT || 'https://net.hawkesgen.ai').replace(/^https?:\/\//, ''),
@@ -1173,6 +1303,7 @@
       });
     },
   });
+  ptApi.dropFor = (ms = 3000) => dropRoom(mp.lobby, Number(ms) || 0);
   if (window.__hawkesDemoBoot) window.__hawkesDemoBoot.upgradedAt = performance.now();
   engine.runRenderLoop(() => scene.render());
   addEventListener('resize', () => engine.resize());

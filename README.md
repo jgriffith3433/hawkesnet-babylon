@@ -120,7 +120,8 @@ object holding the same names.
 | `area` | The shared room (default `'lobby'`). |
 | `liveHosts` | Your site(s): there players share the live rooms; anywhere else the free test rooms. |
 | `player` | The mesh or node whose place and heading are sent. Or give `getPose: () => ({ position, yaw?, extra? })`. |
-| `avatar` | `(peer, BABYLON, scene) => node`: how others look. |
+| `avatar` | `(peer, BABYLON, scene) => node`: how others look (`peer.extra` has the values that player sends in their pose extra, e.g. a colour). |
+| `onAway` | `(node, away, peer) => void`: show "away" your own way (a nameplate); the module fades an away avatar to 40% itself. A dropped player is away at once and removed with the leave fade after the server's 15 s grace. |
 | `emoteKeys` | Key presses that emote (default `{ e: 'wave' }`, `false` for none). |
 
 An option given as `undefined` is ignored (the SDK's default stays).
@@ -137,7 +138,7 @@ An option given as `undefined` is ignored (the SDK's default stays).
 | `share(node, id, { owner? })` | A moving thing everyone sees. `owner: 'host'` (default) or `'claim'`. Returns `{ take(), release(), mine() }`. |
 | `unshare(id)` | Stop sharing it. |
 | `emote('wave')` | Wave on your player (false inside a short cooldown). |
-| `onPresence(fn)`, `presence`, `leaving` | Join, leave and emote events (`spawn`, `leave`, `emote`), the last 50, and avatars fading out. |
+| `onPresence(fn)`, `presence`, `leaving` | Join, leave, emote and away events (`spawn`, `leave`, `emote`, `away`, `back`), the last 50, and avatars fading out. |
 | `dispose()` | Leave and remove every avatar and hook. |
 
 The demo site also serves your quickstart as `quickstart.html`, built from the code block above (`npm run build`), so it can't drift; the demo's `quickstart` playtest scenario opens it.

@@ -32,13 +32,15 @@ export interface MultiplayerOptions extends Partial<LobbyOptions> {
   /** How others look: a node for a player (default: a capsule in their color with their name). */
   /** Key presses that emote for everyone to see (default `{ e: 'wave' }`; `false` for none). */
   emoteKeys?: Record<string, EmoteKind> | false;
-  avatar?: (peer: { id: string; name: string }, BABYLON: any, scene: any) => BabylonNode;
+  /** Called when a player's away state changes (show "away" on the nameplate). The module fades the avatar to 40% itself. */
+  onAway?: (node: BabylonNode, away: boolean, peer: { id: string; name: string }) => void;
+  avatar?: (peer: { id: string; name: string; extra?: any }, BABYLON: any, scene: any) => BabylonNode;
 }
 
 export type EmoteKind = 'wave';
 
 /** A presence event: a player popped in (`spawn`), is fading out (`leave`), or emoted (`emote`; yours too). */
-export interface PresenceEvent { type: 'spawn' | 'leave' | 'emote'; id: string; name: string; emote?: EmoteKind; at: number }
+export interface PresenceEvent { type: 'spawn' | 'leave' | 'emote' | 'away' | 'back'; id: string; name: string; emote?: EmoteKind; at: number }
 
 /** A playing emote on a node (a raised, swinging arm). multiplayer() drives it; otherwise call update(performance.now()) each frame. */
 export interface PlayingEmote { kind: EmoteKind; done: boolean; update(now: number): void; dispose(): void }

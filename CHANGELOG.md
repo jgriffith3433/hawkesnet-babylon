@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Away players:** faded to 40%, new `onAway(node, away, peer)` option, `away`/`back` presence events, `peer.extra` passed to `avatar`.
+- **Demo:** Reconnecting banner and a frozen character while the connection is down, name and colour kept in sessionStorage, `hawkesPlaytest.dropFor(ms)` and a `reconnect` scenario.
+
 ## 0.2.0
 
 Everything that landed on beta since 0.1.2. The module's API is unchanged; this release is mostly the demo and the docs.
