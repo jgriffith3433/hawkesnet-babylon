@@ -52,11 +52,14 @@ test('the feel scenario measures rule-11 metrics, enforces targets, and marks st
   for (const clip of ['Feel start', 'Feel turn', 'Feel stop']) {
     assert.ok(html.includes(`setScene('${clip}')`), `marks clip scene ${clip}`);
   }
+  // Input-latency frame counting must start only after keydown (keyed gate), or software WebGL falsely fails the 100 ms target.
+  assert.match(html, /if \(!keyed\) return/);
   assert.match(html, /if \(delay >= 100\) throw new Error/);
   assert.match(html, /if \(tFull < 80\) throw new Error/);
   assert.match(html, /if \(tStop < 80\) throw new Error/);
-  assert.match(html, /if \(inside\) throw new Error/);
+  assert.match(html, /if \(inside \|\| clipSec > 0\) throw new Error/);
   assert.match(html, /if \(fov < 60 \|\| fov > 75\) throw new Error/);
+  assert.match(html, /if \(!\(lagPeak >= 0\.25\)\) throw new Error/);
 });
 
 test('dist/ has demo-root.json and both pages define hawkesPlaytest stub before any module import, redirect from /a/b/, and show an error card on load failure', async () => {

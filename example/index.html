@@ -595,15 +595,18 @@
       await check('Feel metrics: input delay, speed-up, stop, camera lag, no snaps, no clipping, field of view', async () => {
         await until(() => motion.speed < 0.01 && motion.camLag < 0.05, 8000, 'the player and camera to settle');
         motion.camClipSec = 0;
-        const xKey = me.position.x > 4 ? 'a' : 'd', zKey = me.position.z > 4 ? 's' : 'w';
+        // Steer toward the open court so start/turn/stop never clamps on the arena edge mid-measurement.
+        const xKey = me.position.x > 0 ? 'a' : 'd', zKey = me.position.z > 0 ? 's' : 'w';
         setScene('Feel start');
         event('clip-start', `pressing ${xKey.toUpperCase()}`);
         await nextFrame();
         const rec = [];
-        let framesSinceKey = 0, firstMove = null;
-        const t0 = performance.now(), x0 = me.position.x;
+        let keyed = false, framesSinceKey = 0, firstMove = null, t0 = 0;
+        const x0 = me.position.x;
         const moved = (x) => Math.abs(x - x0) > 0.0001;
+        // Count simulation frames only after keydown (earlier observers would inflate frame# and break the software-WebGL path).
         const offBefore = scene.onBeforeRenderObservable.add(() => {
+          if (!keyed) return;
           framesSinceKey++;
           if (!firstMove && moved(me.position.x)) {
             const rawDt = engine.getDeltaTime();
@@ -615,6 +618,8 @@
           t: performance.now(), dt: engine.getDeltaTime(), sp: motion.speed, lag: motion.camLag,
           jump: motion.camJump, inside: motion.camInside, x: me.position.x, z: me.position.z, ry: me.rotation.y,
         }));
+        t0 = performance.now();
+        keyed = true;
         key(xKey, true);
         await until(() => moved(me.position.x) && rec.some((r) => moved(r.x)), 1500, 'the player to start moving');
         const first = firstMove || rec.find((r) => moved(r.x));
@@ -629,10 +634,14 @@
         // Keep 'Feel start' active for >=600 ms so the runner's 500 ms scene poll always captures the start clip.
         const startHold = 620 - (performance.now() - t0);
         if (startHold > 0) await wait(startHold);
+        const tTurn = performance.now();
         setScene('Feel turn');
         event('clip-turn', `turning to ${zKey.toUpperCase()} at full speed`);
         key(xKey, false); key(zKey, true);
         await wait(900);
+        // Hold the turn scene long enough for the 500 ms runner poll even if the 900 ms wait was shortened elsewhere.
+        const turnHold = 620 - (performance.now() - tTurn);
+        if (turnHold > 0) await wait(turnHold);
         key(zKey, false);
         const tRel = performance.now();
         setScene('Feel stop');
@@ -650,17 +659,19 @@
         const jump = jumps.length ? Math.max(...jumps) : 0;
         const inside = rec.some((r) => r.inside) || motion.camClipSec > 0;
         const fov = cam.fov * 180 / Math.PI;
+        const clipSec = Math.round(motion.camClipSec * 100) / 100;
         const m = (k, v) => metric(k, Math.round(v * 100) / 100);
         m('inputDelayMs', delay); m('timeToFullSpeedMs', tFull); m('stopTimeMs', tStop); m('cameraLagPeak', lagPeak);
         m('cameraMaxJump', jump); m('cameraInsideGeometry', inside ? 1 : 0); m('fovDegrees', fov); m('feelFrames', rec.length);
-        // Studio quality gate names (camera-and-controls): same readings under the feel.* keys.
-        m('feel.inputLatencyMs', delay); m('feel.cameraClipSeconds', motion.camClipSec);
-        event('feel-metrics', `delay ${Math.round(delay)} ms, full speed ${Math.round(tFull)} ms, stop ${Math.round(tStop)} ms, camera lag ${lagPeak.toFixed(2)}, max camera jump ${jump.toFixed(3)}, fov ${fov.toFixed(0)}`);
+        // Studio quality gate names (camera-and-controls): same readings under the feel.* keys (clip seconds always set).
+        m('feel.inputLatencyMs', delay); m('feel.cameraClipSeconds', clipSec);
+        event('feel-metrics', `delay ${Math.round(delay)} ms, full speed ${Math.round(tFull)} ms, stop ${Math.round(tStop)} ms, camera lag ${lagPeak.toFixed(2)}, max camera jump ${jump.toFixed(3)}, clip ${clipSec} s, fov ${fov.toFixed(0)}`);
         if (delay >= 100) throw new Error(`input delay ${Math.round(delay)} ms (target under 100)`);
         if (tFull < 80) throw new Error(`reached full speed in ${Math.round(tFull)} ms: no acceleration`);
         if (tStop < 80) throw new Error(`stopped in ${Math.round(tStop)} ms: no deceleration`);
+        if (!(lagPeak >= 0.25)) throw new Error(`camera lag peak ${lagPeak.toFixed(2)} (want a real follow trail)`);
         if (jump > Math.max(0.6, MAX_SPEED * 0.1)) throw new Error(`the camera jumped ${jump.toFixed(2)} in one frame`);
-        if (inside) throw new Error('the camera went inside geometry');
+        if (inside || clipSec > 0) throw new Error('the camera went inside geometry');
         if (fov < 60 || fov > 75) throw new Error(`field of view ${fov.toFixed(0)} degrees (want 60 to 75)`);
         return `delay ${Math.round(delay)} ms, full speed ${Math.round(tFull)} ms, stop ${Math.round(tStop)} ms, camera lag ${lagPeak.toFixed(1)}, max jump ${jump.toFixed(2)}, fov ${fov.toFixed(0)}`;
       });
