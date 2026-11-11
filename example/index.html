@@ -72,7 +72,7 @@
   (function () {
     var hookAt = performance.now(), err = null, started = '', gone = false, busy = false, tried = Object.create(null);
     var stubScenarios = [
-      { id: 'smoke', title: 'Two players in one page meet in a room, move, message and leave', seconds: 45, tags: ['smoke'] },
+      { id: 'smoke', title: 'Two players in one page meet in a room, move, message and leave', seconds: 100, tags: ['smoke'] },
       { id: 'two-players', title: 'Real browsers on one ?room= find each other, move and message', seconds: 75, tags: ['full', 'multiplayer'] },
       { id: 'phone', title: 'Phone at 390x844: joystick moves you, no overlap, one-line panel', seconds: 75, tags: ['full', 'phone'] },
       { id: 'feel', title: 'Camera and controls feel: eased movement, eased camera, touch joystick', seconds: 55, tags: ['full'] },
@@ -448,11 +448,13 @@
 
   const vel = { x: 0, z: 0 };
   let stride = 0;
+  let auditOrbit = false;   // smoke's 20 s camera orbit: pause follow so the audit drives alpha alone
   const motion = { speed: 0, camLag: 0, camJump: 0, camInside: false, frames: 0, camClipSec: 0 };   // read by the playtest checks
   let lastCam = null;
   const eyeInside = (p) => p.y < 0.35 || scene.meshes.some((m) => (m.name === 'crate' || m.name.startsWith('pillar')) && m.getBoundingInfo().boundingBox.intersectsPoint(p));
   // One small nudge per frame if the eye is inside a solid (never a radius snap that itself fails the jump check).
   const clearEye = () => {
+    if (auditOrbit) return false;
     const p = cam.globalPosition;
     if (!eyeInside(p)) return false;
     cam.radius = Math.min(cam.upperRadiusLimit, cam.radius + 0.15);
@@ -492,14 +494,16 @@
       me.rotation.y += d * (1 - Math.exp(-dt * 12));
     }
     // Ease the follow target, but cap travel so a hitch trails instead of teleporting the eye in one frame.
-    const f = 1 - Math.exp(-dt * FOLLOW);
-    let dx = (me.position.x - cam.target.x) * f, dz = (me.position.z - cam.target.z) * f;
-    const maxStep = MAX_SPEED * Math.min(dt, 1 / 30) + 0.2;
-    const stepLen = Math.hypot(dx, dz);
-    if (stepLen > maxStep) { dx *= maxStep / stepLen; dz *= maxStep / stepLen; }
-    cam.target.x += dx; cam.target.z += dz;
-    clearEye();
-    motion.camLag = Math.hypot(me.position.x - cam.target.x, me.position.z - cam.target.z);
+    if (!auditOrbit) {
+      const f = 1 - Math.exp(-dt * FOLLOW);
+      let dx = (me.position.x - cam.target.x) * f, dz = (me.position.z - cam.target.z) * f;
+      const maxStep = MAX_SPEED * Math.min(dt, 1 / 30) + 0.2;
+      const stepLen = Math.hypot(dx, dz);
+      if (stepLen > maxStep) { dx *= maxStep / stepLen; dz *= maxStep / stepLen; }
+      cam.target.x += dx; cam.target.z += dz;
+      clearEye();
+      motion.camLag = Math.hypot(me.position.x - cam.target.x, me.position.z - cam.target.z);
+    }
     if (mp.room?.sync.mine('crate')) crate.rotation.y += dt;
     // Event-driven collect: only while moving onto an orb (no polling the service).
     if (sp > 0.35 && mp.lobby) orbs.touchAt(mp.lobby, me.position.x, me.position.z);
@@ -508,6 +512,7 @@
   });
   // Studio's playtest bot (net-playtest.mjs): a second player in this page, this capsule moved by real WASD input.
   const { installNetPlaytest } = await import('./net-playtest.mjs');
+  const { auditScene, auditFailMessage, cameraInsideSolid } = await import('./scene-audit.mjs');
   const { lobby } = await import('@hawkesgen/net');
   const key = (k, down) => dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { key: k, bubbles: true }));
   // Probe for the phone scenario's 390x844 iframe (same-origin): the outer bot reads place, speed and layout from here.
@@ -1141,6 +1146,7 @@
     }],
     product: 'hawkes-net-babylon',
     where: (endpoint || globalThis.HAWKES_NET_ENDPOINT || 'https://net.hawkesgen.ai').replace(/^https?:\/\//, ''),
+    seconds: { smoke: 100 },   // feel + presence + 20 s scene-audit orbit
     main: () => mp.lobby,
     openBot: async () => openPlaytestPeer('Playtest bot', `pt-${Math.random()}`),
     drive: async (step) => { key('d', true); await step(1200); key('d', false); key('w', true); await step(900); key('w', false); await step(100); },
@@ -1193,6 +1199,80 @@
         if (!sky.material?.emissiveTexture || !sky.isEnabled()) throw new Error('no sky');
         if (!shadows.getShadowMap()) throw new Error('no shadows');
         return `${lights} lights, floor and sky textured, shadows on`;
+      });
+      // Scene audit (quality rules 2, 3, 4 + camera): static props on the ground, no z-fight / inside-out, near plane, 20 s orbit.
+      await check('Scene audit: no floating, sunk, z-fighting or inside-out meshes', async () => {
+        setScene?.('Scene audit');
+        const { problems, counts } = auditScene(scene, B);
+        for (const k of ['floating', 'sunk', 'zfight', 'insideOut']) metric?.(k, counts[k]);
+        metric?.('groundChecked', counts.groundChecked);
+        metric?.('coplanarChecked', counts.coplanarChecked);
+        metric?.('normalsChecked', counts.normalsChecked);
+        event?.('scene-audit', `floating ${counts.floating}, sunk ${counts.sunk}, zfight ${counts.zfight}, insideOut ${counts.insideOut} (checked ${counts.groundChecked} props)`);
+        if (counts.floating || counts.sunk || counts.zfight || counts.insideOut) {
+          throw new Error(auditFailMessage(problems) || `audit counts floating=${counts.floating} sunk=${counts.sunk} zfight=${counts.zfight} insideOut=${counts.insideOut}`);
+        }
+        return `0 floating, 0 sunk, 0 zfight, 0 insideOut (${counts.groundChecked} props, ${counts.coplanarChecked} coplanar pairs checked, ${counts.normalsChecked} normals)`;
+      });
+      await check('Scene audit: a prop lifted off the ground fails by name', async () => {
+        const was = crate.position.y;
+        crate.position.y = was + 1.2;
+        crate.computeWorldMatrix(true);
+        crate.refreshBoundingInfo?.(true);
+        try {
+          const { problems, counts } = auditScene(scene, B);
+          metric?.('floatingProbe', counts.floating);
+          const hit = problems.find((p) => p.kind === 'floating' && p.id === 'crate');
+          if (!hit) throw new Error(`expected floating crate; got: ${auditFailMessage(problems) || 'clean'}`);
+          event?.('floating-probe', `quality.ground-contact: crate ${hit.detail}`);
+          return `lifted crate → ${auditFailMessage([hit])}`;
+        } finally {
+          crate.position.y = was;
+          crate.computeWorldMatrix(true);
+          crate.refreshBoundingInfo?.(true);
+        }
+      });
+      await check('Camera near plane is at least 0.1', async () => {
+        metric?.('cameraNearZ', cam.minZ);
+        if (!(cam.minZ >= 0.1)) throw new Error(`camera minZ ${cam.minZ} (want ≥ 0.1)`);
+        return `minZ ${cam.minZ}`;
+      });
+      await check('20 s camera orbit stays outside every solid', async () => {
+        setScene?.('Camera orbit');
+        const saved = { alpha: cam.alpha, beta: cam.beta, radius: cam.radius, tx: cam.target.x, ty: cam.target.y, tz: cam.target.z };
+        auditOrbit = true;
+        // Sweep a low, tight path past the crate and along the pillar ring (not a high safe circle).
+        cam.target.set(3, 1, 3);   // crate corner of the court
+        let frames = 0, inside = 0, lastHit = null;
+        const t0 = performance.now();
+        const ORBIT_MS = 20000;
+        const off = scene.onAfterRenderObservable.add(() => {
+          frames++;
+          const u = Math.min(1, (performance.now() - t0) / ORBIT_MS);
+          cam.alpha = saved.alpha + u * Math.PI * 2;
+          cam.beta = 0.85 + 0.55 * Math.sin(u * Math.PI * 2);   // 0.85..1.4
+          cam.radius = 10 + 8 * (0.5 + 0.5 * Math.sin(u * Math.PI * 4)); // 10..18 within limits
+          const p = cam.globalPosition;
+          const hit = cameraInsideSolid(scene, B, p);
+          if (hit) { inside++; lastHit = hit.name; }
+        });
+        try {
+          while (performance.now() - t0 < ORBIT_MS) {
+            await wait(200);
+            const u = Math.min(1, (performance.now() - t0) / ORBIT_MS);
+            event?.('orbit', `${Math.round(u * 100)}% · r ${cam.radius.toFixed(1)} β ${cam.beta.toFixed(2)} · inside frames ${inside}`);
+          }
+        } finally {
+          scene.onAfterRenderObservable.remove(off);
+          auditOrbit = false;
+          cam.alpha = saved.alpha; cam.beta = saved.beta; cam.radius = saved.radius;
+          cam.target.set(saved.tx, saved.ty, saved.tz);
+        }
+        metric?.('cameraInside', inside);
+        metric?.('orbitFrames', frames);
+        event?.('orbit-done', `${frames} frames, cameraInside ${inside}${lastHit ? ` (last ${lastHit})` : ''}`);
+        if (inside > 0) throw new Error(`cameraInside ${inside} frame(s)${lastHit ? ` in ${lastHit}` : ''}`);
+        return `${frames} frames, cameraInside 0`;
       });
       await check('Every avatar shows a nameplate with its name', async () => {
         const mine = me.getChildMeshes().some((m) => m.name === 'me-tag' && m.isEnabled());

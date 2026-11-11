@@ -25,5 +25,9 @@ over `@hawkesgen/net` (the hawkesnet repo's `sdk/js`). One file, `hawkes-net-bab
   panel, no sideways scroll and text ≥ 12 px; `feel` checks eased movement, the eased follow camera and the touch
   joystick (setup option `touch`, default true); smoke runs the feel checks too. Scenario list: `smoke`, `two-players`,
   `phone`, `feel` (plus `quickstart`, `demo-boot`). `two-players` (and smoke’s `extra`) also run the host-authoritative
-  orb collect checks via `afterTwoPlayers` / `example/orbs-playtest.mjs`. The same net-playtest file lives in
-  hawkesnet-js and hawkesnet (`public/demo-playtest.mjs`): change all three.
+  orb collect checks via `afterTwoPlayers` / `example/orbs-playtest.mjs`. Smoke’s `extra` also runs the scene audit
+  (`example/scene-audit.mjs`): every static prop’s bounds bottom within 2 cm of a downward ray (floating / sunk),
+  coplanar overlapping faces (zfight), inside-out normals, camera `minZ ≥ 0.1`, a 20 s camera orbit with
+  `cameraInside` frames, and a lift-the-crate probe that must fail naming `crate`. Metrics: `floating`, `sunk`,
+  `zfight`, `insideOut`, `cameraInside` (fail on any non-zero). The same net-playtest file lives in hawkesnet-js and
+  hawkesnet (`public/demo-playtest.mjs`): change all three.
