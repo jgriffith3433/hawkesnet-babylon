@@ -25,7 +25,7 @@
   #scores .row.me { color: #7fe8ff; font-weight: 700; }
   #scores .sc { margin-left: 4px; font-variant-numeric: tabular-nums; }
   /* Round timer: top centre, pulses red in the last 10 s. Result card + confetti: the same on every screen. */
-  #timer { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 5; background: rgba(0,0,0,.55); padding: 4px 16px; border-radius: 8px; text-align: center; line-height: 1.15; pointer-events: none; white-space: nowrap; }
+  #timer { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 5; background: rgba(0,0,0,.55); padding: 4px 16px; border-radius: 8px; text-align: center; line-height: 2.2; pointer-events: none; white-space: nowrap; }
   #timer .rd { display: block; font-size: 12px; color: #9aa1ad; letter-spacing: .04em; text-transform: uppercase; }
   #timer .tm { display: block; font-size: 26px; font-variant-numeric: tabular-nums; color: #e8eaed; }
   #timer.pulse .tm { color: #ff7b72; animation: tpulse .5s ease-in-out infinite alternate; }
@@ -179,11 +179,17 @@
   const B = window.BABYLON;
   if (!B) throw new Error('Babylon.js did not load');
   const engine = new B.Engine(document.getElementById('c'), true);
+  // Phone frame budget: a phone (touch or narrow screen) renders at most 1.25 device pixels per CSS pixel (desktop 2),
+  // with a smaller, unblurred shadow map and fewer torch lights; no post-processing is ever added to this scene.
+  const lite = () => (navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches) || matchMedia('(max-width: 640px)').matches || q.get('touch') === '1';
+  const dprCap = lite() ? 1.25 : 2;
+  engine.setHardwareScalingLevel(Math.max(1, (window.devicePixelRatio || 1) / dprCap));
+  window.__hawkesFrameBudget = { lite: lite(), dprCap, dpr: window.devicePixelRatio || 1, scaling: engine.getHardwareScalingLevel() };
   const scene = new B.Scene(engine);
   scene.clearColor = new B.Color4(0.05, 0.07, 0.12, 1);
   scene.fogMode = B.Scene.FOGMODE_EXP2; scene.fogDensity = 0.012; scene.fogColor = new B.Color3(0.55, 0.68, 0.85);
   const cam = new B.ArcRotateCamera('cam', -Math.PI / 2, 1.0, 20, new B.Vector3(0, 1, 0), scene);
-  cam.lowerRadiusLimit = 8; cam.upperRadiusLimit = 34; cam.upperBetaLimit = 1.45;
+  cam.lowerRadiusLimit = 1.5; cam.upperRadiusLimit = 34;   // the player zooms 8..34 (WANT_MIN/MAX); collision may pull in to 1.5 cam.upperBetaLimit = 1.45;
   cam.minZ = 0.15;                 // keep the near plane off the eye (quality: no-z-fighting)
   cam.fov = 65 * Math.PI / 180;   // vertical field of view: 65 degrees (rule: 60–75)
   // Mouse can orbit; keyboard stays with the player (WASD/arrows). No inertia so a drag never coasts into a snap.
@@ -213,8 +219,9 @@
   fill.intensity = 0.55; fill.diffuse = new B.Color3(0.75, 0.85, 1); fill.groundColor = new B.Color3(0.25, 0.22, 0.3);
   const sun = new B.DirectionalLight('sun', new B.Vector3(-0.5, -1, -0.35), scene);
   sun.position = new B.Vector3(20, 30, 14); sun.intensity = 1.1; sun.diffuse = new B.Color3(1, 0.88, 0.7);
-  const shadows = new B.ShadowGenerator(1024, sun);
-  shadows.useBlurExponentialShadowMap = true; shadows.blurKernel = 16; shadows.darkness = 0.35;
+  const shadows = new B.ShadowGenerator(lite() ? 512 : 1024, sun);
+  if (lite()) shadows.useExponentialShadowMap = true; else { shadows.useBlurExponentialShadowMap = true; shadows.blurKernel = 16; }
+  shadows.darkness = 0.35;
 
   // Ground: a flagstone arena floor with a ring painted in it.
   const floorTex = paint('floorTex', 1024, (g, S) => {
@@ -248,14 +255,21 @@
   stone.diffuseTexture = floorTex; stone.diffuseColor = new B.Color3(0.9, 0.9, 1);
   const flame = new B.StandardMaterial('flame', scene);
   flame.emissiveColor = new B.Color3(1, 0.7, 0.3); flame.disableLighting = true;
+  // The eight pillars and flames are repeated props: one source mesh each, the rest GPU instances (one draw call per kind).
+  let pil0 = null, flame0 = null;
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2, x = Math.cos(a) * 15, z = Math.sin(a) * 15;
-    const pil = B.MeshBuilder.CreateCylinder('pillar' + i, { height: 4, diameterTop: 1, diameterBottom: 1.4, tessellation: 12 }, scene);
-    pil.position.set(x, 2, z); pil.material = stone; pil.receiveShadows = true; shadows.addShadowCaster(pil);
-    const f = B.MeshBuilder.CreateSphere('flame' + i, { diameter: 0.6, segments: 8 }, scene);
-    f.position.set(x, 4.5, z); f.material = flame;
-    const torch = new B.PointLight('torch' + i, new B.Vector3(x * 0.92, 4.2, z * 0.92), scene);
-    torch.diffuse = new B.Color3(1, 0.65, 0.3); torch.intensity = 0.35; torch.range = 14;
+    const pil = pil0 ? pil0.createInstance('pillar' + i)
+      : (pil0 = B.MeshBuilder.CreateCylinder('pillar' + i, { height: 4, diameterTop: 1, diameterBottom: 1.4, tessellation: 12 }, scene));
+    pil.position.set(x, 2, z);
+    if (pil === pil0) { pil.material = stone; pil.receiveShadows = true; shadows.addShadowCaster(pil); }
+    const f = flame0 ? flame0.createInstance('flame' + i)
+      : (flame0 = B.MeshBuilder.CreateSphere('flame' + i, { diameter: 0.6, segments: 8 }, scene));
+    f.position.set(x, 4.5, z); if (f === flame0) f.material = flame;
+    if (!lite() || i % 2 === 0) {   // a phone lights the floor with four torches, not eight
+      const torch = new B.PointLight('torch' + i, new B.Vector3(x * 0.92, 4.2, z * 0.92), scene);
+      torch.diffuse = new B.Color3(1, 0.65, 0.3); torch.intensity = lite() ? 0.5 : 0.35; torch.range = 14;
+    }
   }
 
   // The player: a node standing on the floor (that is what Hawkes Net sends), a capsule in it, a nameplate over it.
@@ -459,25 +473,56 @@
   const vel = { x: 0, z: 0 };
   let stride = 0;
   let auditOrbit = false;   // smoke's 20 s camera orbit: pause follow so the audit drives alpha alone
-  const motion = { speed: 0, camLag: 0, camJump: 0, camInside: false, frames: 0, camClipSec: 0 };   // read by the playtest checks
+  const motion = { speed: 0, camLag: 0, camJump: 0, camTurnDeg: 0, camPull: 0, camInside: false, frames: 0, camClipSec: 0,
+    camLog: { on: false, frames: 0, maxTurn: 0, maxJump: 0, minRadius: 99, maxPull: 0, snaps: 0, inside: 0, dts: [] } };   // camLog: a window the playtest opens   // read by the playtest checks
   let lastCam = null;
   const eyeInside = (p) => p.y < 0.35 || scene.meshes.some((m) => (m.name === 'crate' || m.name.startsWith('pillar')) && m.getBoundingInfo().boundingBox.intersectsPoint(p));
-  // One small nudge per frame if the eye is inside a solid (never a radius snap that itself fails the jump check).
-  const clearEye = () => {
-    if (auditOrbit) return false;
-    const p = cam.globalPosition;
-    if (!eyeInside(p)) return false;
-    cam.radius = Math.min(cam.upperRadiusLimit, cam.radius + 0.15);
-    if (p.y < 0.35) cam.beta = Math.min(cam.upperBetaLimit, Math.max(0.35, cam.beta - 0.02));
-    return eyeInside(cam.globalPosition);
+  // Camera collision: a sphere cast (the centre ray plus a ring of rays at the sphere's radius) from the target to where the
+  // camera wants to be. The camera's distance pulls in quickly (and never past a hard limit that keeps the eye outside every
+  // solid), then eases back out slowly once the way is clear. cam.radius is the player's wish; `written` is what we put in it.
+  const WANT_MIN = 8, WANT_MAX = 34, CAM_SPHERE = 0.45, PULL_IN = 16, EASE_OUT = 2.2, MIN_DIST = 1.2;
+  const isSolid = (m) => m.isPickable && (m.name === 'crate' || m.name === 'ground' || m.name.startsWith('pillar'));
+  let wanted = cam.radius, written = cam.radius;
+  const castDistance = (want) => {
+    const t = cam.target, sa = Math.sin(cam.alpha), ca = Math.cos(cam.alpha), sb = Math.sin(cam.beta), cb = Math.cos(cam.beta);
+    const dir = new B.Vector3(ca * sb, cb, sa * sb);                       // target → camera
+    const right = B.Vector3.Cross(B.Vector3.Up(), dir).normalize(), up = B.Vector3.Cross(dir, right).normalize();
+    let best = want;
+    for (let k = -1; k < 6; k++) {
+      const off = k < 0 ? B.Vector3.Zero() : right.scale(Math.cos(k * Math.PI / 3) * CAM_SPHERE).addInPlace(up.scale(Math.sin(k * Math.PI / 3) * CAM_SPHERE));
+      const hit = scene.pickWithRay(new B.Ray(t.add(off), dir, want + CAM_SPHERE), isSolid);
+      if (hit?.hit && hit.distance < best) best = hit.distance;
+    }
+    return best;
   };
-  // Per rendered frame: largest eye jump (true snap metric) and whether the eye is still inside geometry.
+  const stepCamera = (dt) => {
+    if (cam.radius !== written) wanted = Math.min(WANT_MAX, Math.max(WANT_MIN, cam.radius));   // the player (or the audit) zoomed
+    const free = castDistance(wanted);
+    const hard = Math.max(0.3, free - 0.1), goal = Math.min(hard, Math.max(MIN_DIST, free - CAM_SPHERE * 0.5));
+    const rate = goal < written ? PULL_IN : EASE_OUT;
+    let r = written + (goal - written) * (1 - Math.exp(-dt * rate));
+    r = Math.min(r, hard);                      // never inside a solid, even on a hitch
+    cam.radius = written = r;
+    motion.camPull = wanted - r;
+  };
+  // Per rendered frame: largest eye jump, the largest turn of the view direction (degrees) and whether the eye is inside geometry.
+  let lastDir = null;
   scene.onAfterRenderObservable.add(() => {
     const p = cam.globalPosition;
     motion.camJump = lastCam ? Math.hypot(p.x - lastCam.x, p.y - lastCam.y, p.z - lastCam.z) : 0;
     lastCam = p.clone(); motion.frames++;
+    const d = cam.getForwardRay(1).direction.clone();
+    motion.camTurnDeg = lastDir ? Math.acos(Math.min(1, Math.max(-1, B.Vector3.Dot(d, lastDir)))) * 180 / Math.PI : 0;
+    lastDir = d;
     motion.camInside = eyeInside(p);
     if (motion.camInside) motion.camClipSec += engine.getDeltaTime() / 1000;
+    const log = motion.camLog; if (log.on) {
+      log.frames++; log.maxTurn = Math.max(log.maxTurn, motion.camTurnDeg); log.maxJump = Math.max(log.maxJump, motion.camJump);
+      log.minRadius = Math.min(log.minRadius, cam.radius); log.maxPull = Math.max(log.maxPull, motion.camPull);
+      if (motion.camTurnDeg > 30) log.snaps++;
+      if (motion.camInside) log.inside++;
+      log.dts.push(engine.getDeltaTime());
+    }
   });
   scene.onBeforeRenderObservable.add(() => {
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
@@ -495,6 +540,12 @@
     // Stay on the floor (36 x 36): stop at the edge instead of walking out over the water.
     if (Math.abs(me.position.x) > EDGE) { me.position.x = Math.sign(me.position.x) * EDGE; vel.x = 0; }
     if (Math.abs(me.position.z) > EDGE) { me.position.z = Math.sign(me.position.z) * EDGE; vel.z = 0; }
+    // Pillars are solid for the player too (a circle of 2.2 round each), so backing up never walks the target into one.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2, px = Math.cos(a) * 15, pz = Math.sin(a) * 15;
+      const ox = me.position.x - px, oz = me.position.z - pz, od = Math.hypot(ox, oz);
+      if (od < 2.2) { const k = od > 1e-4 ? 2.2 / od : 0; me.position.x = od > 1e-4 ? px + ox * k : px + 2.2; me.position.z = od > 1e-4 ? pz + oz * k : pz; }
+    }
     const sp = Math.hypot(vel.x, vel.z); motion.speed = sp;
     // A footstep every 1.4 units walked (a stride), so faster is quicker and standing still is silent.
     if (sp > 0.5) { stride += sp * dt; if (stride >= 1.4) { stride -= 1.4; audio.footstep(); } } else stride = 0;
@@ -511,9 +562,9 @@
       const stepLen = Math.hypot(dx, dz);
       if (stepLen > maxStep) { dx *= maxStep / stepLen; dz *= maxStep / stepLen; }
       cam.target.x += dx; cam.target.z += dz;
-      clearEye();
       motion.camLag = Math.hypot(me.position.x - cam.target.x, me.position.z - cam.target.z);
     }
+    stepCamera(dt);   // collision also runs while the audit orbits the camera
     if (mp.room?.sync.mine('crate')) crate.rotation.y += dt;
     // Event-driven collect: only while moving onto an orb (no polling the service).
     if (sp > 0.35 && mp.lobby) orbs.touchAt(mp.lobby, me.position.x, me.position.z);
@@ -542,6 +593,16 @@
     stick, hud, mute: muteBtn, knob, scores: scoresEl,
     lobby: () => mp.lobby,
     orbs: () => window.hawkesBabylonOrbs,
+    // The camera log: open a window, play, close it for the largest one-frame turn (deg), snaps over 30°, inside frames and frame times.
+    camLogStart: () => { Object.assign(motion.camLog, { on: true, frames: 0, maxTurn: 0, maxJump: 0, minRadius: 99, maxPull: 0, snaps: 0, inside: 0, dts: [] }); },
+    camLogStop: () => {
+      const l = motion.camLog; l.on = false;
+      const fps = l.dts.filter((d) => d > 0).map((d) => 1000 / d).sort((a, b) => a - b);
+      const p5 = fps.length ? fps[Math.min(fps.length - 1, Math.floor(fps.length * 0.05))] : 0;
+      return { frames: l.frames, maxTurnDeg: l.maxTurn, maxJump: l.maxJump, snaps: l.snaps, inside: l.inside, minRadius: l.minRadius, maxPull: l.maxPull, fpsP5: p5, fpsMedian: fps.length ? fps[fps.length >> 1] : 0 };
+    },
+    camRadius: () => cam.radius,
+    budget: () => window.__hawkesFrameBudget,
   };
   // Phone layout + joystick direction checks at a real 390x844 surface (in-page when already that size, else a phone frame).
   const phoneChecks = async ({ check, until, wait, event, metric, scene: setScene, win, doc, probe }) => {
@@ -627,6 +688,41 @@
         metric('phoneJoyUpZ', Math.round(up.z * 10) / 10);
         await wait(300);
         return `right Δx ${right.x.toFixed(1)}, up Δz ${up.z.toFixed(1)}`;
+      });
+      // Back the player into a pillar by touch (stick pulled away from the camera, into the pillar at the far wall): the camera
+      // must pull in smoothly, never inside it, never turning more than 30° in one frame; the frame rate is logged on the way.
+      await check('Backing into a pillar pulls the camera in smoothly; fps p5 is at least 30', async () => {
+        setScene('Phone camera');
+        const b = probe.budget?.();
+        if (b) { metric('phoneDprCap', b.dprCap); metric('phoneHardwareScaling', Math.round(b.scaling * 100) / 100); event('frame-budget', `lite ${b.lite}, dpr ${b.dpr} capped to ${b.dprCap}, render scale 1/${b.scaling.toFixed(2)}`); }
+        await until(() => probe.speed() < 0.01, 5000, 'the player to stand still');
+        const r = R(probe.stick), cx = r.left + r.width / 2, cy = r.top + r.height / 2, rad = r.width / 2 - 14;
+        const goal = { x: 0, z: -16 };   // the pillar at (0, -15) stops the player at z ≈ -12.8, between it and the camera
+        probe.camLogStart();
+        ptr('pointerdown', cx, cy);
+        const t0 = performance.now();
+        let reached = false;
+        while (performance.now() - t0 < 14000) {   // a closed loop of real touch drags: the finger steers toward the pillar
+          const p = probe.pos(), dx = goal.x - p.x, dz = goal.z - p.z, d = Math.hypot(dx, dz);
+          if (Math.abs(p.x) < 0.6 && p.z < -12.6) { reached = true; break; }
+          ptr('pointermove', cx + (dx / d) * rad, cy - (dz / d) * rad);
+          await wait(50);
+        }
+        const pulled = (await sample(1200, () => {}), probe.camRadius());
+        ptr('pointerup', cx, cy);
+        await until(() => probe.speed() < 0.01, 4000, 'the player to stop');
+        await wait(2200);   // the camera eases back out
+        const log = probe.camLogStop();
+        for (const [k, v] of Object.entries({ cameraMaxTurnDeg: log.maxTurnDeg, cameraSnaps30: log.snaps, cameraInsideFrames: log.inside, cameraMinRadius: log.minRadius, cameraPullIn: log.maxPull, fpsP5: log.fpsP5, fpsMedian: log.fpsMedian })) metric(k, Math.round(v * 100) / 100);
+        event('camera-log', `${log.frames} frames, largest one-frame turn ${log.maxTurnDeg.toFixed(2)}°, snaps over 30°: ${log.snaps}, inside geometry: ${log.inside}, pulled in by up to ${log.maxPull.toFixed(1)}, radius low ${log.minRadius.toFixed(1)}`);
+        event('fps', `p5 ${log.fpsP5.toFixed(1)}, median ${log.fpsMedian.toFixed(1)} over ${log.frames} frames`);
+        setScene('Phone camera pulled in');
+        if (!reached) throw new Error(`the player never reached the pillar (stopped at ${JSON.stringify(probe.pos())})`);
+        if (log.snaps) throw new Error(`${log.snaps} camera snap(s) over 30° in one frame (largest ${log.maxTurnDeg.toFixed(1)}°)`);
+        if (log.inside) throw new Error(`the camera was inside geometry for ${log.inside} frame(s)`);
+        if (!(log.maxPull > 0.5)) throw new Error(`the camera never pulled in at the pillar (up to ${log.maxPull.toFixed(2)})`);
+        if (!(log.fpsP5 >= 30)) throw new Error(`fps p5 ${log.fpsP5.toFixed(1)} is under 30`);
+        return `pulled in by ${log.maxPull.toFixed(1)} (radius ${pulled.toFixed(1)} at the pillar), no snap (max ${log.maxTurnDeg.toFixed(2)}°), 0 inside, fps p5 ${log.fpsP5.toFixed(0)}`;
       });
       await check('Six glowing orbs are on the court at phone size', async () => {
         const api = probe.orbs?.() || win.hawkesBabylonOrbs;
