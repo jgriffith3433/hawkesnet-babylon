@@ -187,7 +187,7 @@ export function installNetPlaytest(o) {
       return `round trip ${a} ms / ${b} ms`;
     });
     progress(0.8);
-    if (o.extra) await o.extra({ check, main, bot, until, wait, metric, event, scene, options: run?.options || {}, roundTrips: (f, w, t) => roundTrips(f, w, t) });
+    if (o.extra) await o.extra({ check, main, bot, until, wait, metric, event, scene, progress, step, log, options: run?.options || {}, roundTrips: (f, w, t) => roundTrips(f, w, t) });
     await check('The second player left and this page saw it', async () => {
       const id = bot.id;
       await bot.leave();
@@ -243,7 +243,7 @@ export function installNetPlaytest(o) {
       await o.afterTwoPlayers({
         check, main, other, until, wait, metric,
         roundTrips: (f, w, t) => roundTrips(f, w, t),
-        openBot: o.openBot, event, scene, step,
+        openBot: o.openBot, event, scene, progress, step, log, options: run?.options || {},
       });
     }
     progress(1);
@@ -266,7 +266,7 @@ export function installNetPlaytest(o) {
       try {
         if (!sc) { problem('bug', `no playtest scenario "${id}" (have: ${scenarios.map((s) => s.id).join(', ')})`); return finish('error'); }
         const mineCustom = custom.find((s) => s.id === id);
-        if (mineCustom) { await mineCustom.run({ check, event, scene, until, wait, metric, progress, options: run.options, step }); progress(1); finish(run.lines.every((l) => l.ok) ? 'won' : 'lost'); }
+        if (mineCustom) { await mineCustom.run({ check, event, scene, until, wait, metric, progress, log, options: run.options, step }); progress(1); finish(run.lines.every((l) => l.ok) ? 'won' : 'lost'); }
         else await (id === 'two-players' ? twoPlayers() : smoke());
       } catch (e) {
         if (mine === run && !mine.done) { problem('bug', `bot error: ${e?.message ?? e}`); log(String(e?.stack ?? e)); finish('error'); }

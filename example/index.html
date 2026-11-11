@@ -358,13 +358,15 @@
   addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'm' && !e.repeat) audio.toggle(); });
 
   // Name, colour and ticket identity live in sessionStorage, so a rejoin on a fresh ticket is the same player to everyone.
+  // ?as=B keeps a second page in the same tab (the playtest's phone-sized player B) from sharing this player.
+  const IDENT_KEY = 'hawkes-net-babylon:player' + (q.get('as') ? ':' + q.get('as') : '');
   const ident = (() => {
     const rnd = () => Math.random().toString(36).slice(2, 12);
     try {
-      const v = JSON.parse(sessionStorage.getItem('hawkes-net-babylon:player') || 'null');
+      const v = JSON.parse(sessionStorage.getItem(IDENT_KEY) || 'null');
       if (v && v.name && Number.isFinite(v.hue) && v.sub) return v;
       const f = { name: 'Player ' + Math.floor(Math.random() * 900 + 100), hue: Math.floor(Math.random() * 360), sub: 'bb-' + rnd() };
-      sessionStorage.setItem('hawkes-net-babylon:player', JSON.stringify(f));
+      sessionStorage.setItem(IDENT_KEY, JSON.stringify(f));
       return f;
     } catch { return { name: 'Player ' + Math.floor(Math.random() * 900 + 100), hue: Math.floor(Math.random() * 360), sub: 'bb-' + rnd() }; }
   })();
@@ -531,6 +533,7 @@
     ready: () => Boolean(scene.isReady() && me),
     pos: () => ({ x: me.position.x, y: me.position.y, z: me.position.z }),
     speed: () => motion.speed,
+    ident: () => ({ name: ident.name, hue: ident.hue }),
     setTouch: (on = true) => { pretendTouch = on; showStick(touchCapable()); layout(); },
     touchCapable, compact: () => document.body.classList.contains('compact'),
     // rect() runs in this page's realm so client coordinates match PointerEvents dispatched here (iframe-safe).
@@ -882,6 +885,7 @@
   };
   const { orbChecks } = await import('./orbs-playtest.mjs');
   const { roundChecks } = await import('./rounds-playtest.mjs');
+  const { recoverChecks, jumpChecks } = await import('./net-drop-playtest.mjs');
   // dropFor(ms): close the socket and keep the SDK from reconnecting for ms (the playtest's "network is down").
   const dropRoom = (lob, ms) => {
     const room = lob?.room;
@@ -1151,10 +1155,82 @@
           return `away for ${s.toFixed(1)} s, then faded out and removed`;
         });
       },
+    }, {
+      id: 'drop-recover', title: 'Player B (phone, 390x844 touch) scores, drops for 5 s and returns; remote-avatar jumps on a 250 ms / 5% loss network', seconds: 90, tags: ['full', 'multiplayer', 'phone'],
+      description: 'A second real player B joins this room in a 390x844 touch frame and walks onto an orb with the on-screen joystick (real pointer events). Scores match on both clients. B is dropped with hawkesPlaytest.dropFor(5000): A shows it away, then B must be back within 2000 ms of the network returning with the same name, colour and score. Then B walks while its pose stream is slowed to 250 ms latency and 5% loss; the largest per-frame jump of its avatar on A is reported (metric maxRemoteJumpM) and fails over 0.5 m. Emits shot:* events at each state.',
+      run: async ({ check, event, until, wait, metric, scene: setScene, progress }) => {
+        await until(() => scene.isReady() && me && mp.lobby?.ready, 20000, 'the demo to be online');
+        const frame = document.createElement('iframe');
+        frame.title = 'Player B, phone 390x844';
+        frame.style.cssText = `position:fixed;left:0;top:0;width:${PHONE_W}px;height:${PHONE_H}px;border:0;background:#0e1116;z-index:80`;
+        const u = new URL(location.href);
+        u.searchParams.delete('playtest'); u.searchParams.set('touch', '1'); u.searchParams.set('as', 'B');
+        frame.src = u.href;
+        document.body.appendChild(frame);
+        try {
+          let W = null, probe = null, bLobby = null;
+          setScene('Player B joins');
+          await check('Player B joins in a 390x844 touch frame', async () => {
+            await until(() => { try { W = frame.contentWindow; probe = W.__hawkesDemoProbe; return probe?.ready() && W.hawkesPlaytest && !W.hawkesPlaytest.__stub; } catch { return false; } }, 30000, 'player B to load');
+            probe.setTouch(true);
+            if (!atPhoneSize(W)) throw new Error(`B's viewport is ${W.innerWidth}x${W.innerHeight}`);
+            bLobby = probe.lobby();
+            await until(() => bLobby?.ready && mp.peers.has(bLobby.id) && mp.peers.get(bLobby.id).node, 20000, 'A to see player B');
+            metric('phoneViewport', `${W.innerWidth}x${W.innerHeight}`);
+            event('shot:b-joined', `B ${probe.ident().name} at ${W.innerWidth}x${W.innerHeight}, touch ${probe.touchCapable()}`);
+            return `${probe.ident().name} in a ${W.innerWidth}x${W.innerHeight} touch frame`;
+          });
+          progress(0.15);
+          const R = () => probe.rect(probe.stick);
+          const ptr = (type, x, y) => probe.stick.dispatchEvent(new W.PointerEvent(type, { pointerId: 9, pointerType: 'touch', isPrimary: true, bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          // Real touch: hold the joystick toward the target until B is within r of it (the page itself collects what it touches).
+          const steer = async (target, r, ms) => {
+            const t0 = performance.now(), s = R(), cx = s.left + s.width / 2, cy = s.top + s.height / 2;
+            ptr('pointerdown', cx, cy);
+            try {
+              while (performance.now() - t0 < ms) {
+                const p = probe.pos(), t = target();
+                if (!t) return false;
+                const dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz);
+                if (d <= r) return true;
+                ptr('pointermove', cx + (dx / d) * (s.width / 2), cy - (dz / d) * (s.height / 2));
+                await wait(60);
+              }
+              return false;
+            } finally { ptr('pointerup', cx, cy); }
+          };
+          const bOrbs = () => W.hawkesBabylonOrbs, aOrbs = window.hawkesBabylonOrbs;
+          const orbs = { wire: (l) => (l === bLobby ? bOrbs() : aOrbs).wire(l), snapshot: (l) => (l === bLobby ? bOrbs() : aOrbs).snapshot(l) };
+          const collect = async () => {
+            const nearest = () => { const p = probe.pos(); return bOrbs().snapshot(bLobby).orbs.map((o) => ({ x: o.x, z: o.z })).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0]; };
+            const before = bOrbs().snapshot(bLobby).scores[bLobby.id] || 0;
+            for (let i = 0; i < 6; i++) {
+              await steer(nearest, 0.6, 10000);
+              await wait(300);
+              if ((bOrbs().snapshot(bLobby).scores[bLobby.id] || 0) > before) return;
+            }
+            throw new Error('player B never collected an orb with the joystick');
+          };
+          const seen = (id) => { const p = mp.peers.get(id); return p ? { name: p.name, hue: p.extra?.h, away: Boolean(p.away) } : null; };
+          await recoverChecks({
+            check, until, wait, metric, event, scene: setScene, main: mp.lobby, b: bLobby, orbs, collect,
+            dropB: (ms) => W.hawkesPlaytest.dropFor(ms), seen, bIdent: () => probe.ident(),
+          });
+          progress(0.65);
+          const waypoints = [[-6, 0], [6, 0], [-6, 0]];
+          await jumpChecks({
+            check, metric, event, scene: setScene, wait, b: bLobby,
+            onFrame: (f) => { const o = scene.onAfterRenderObservable.add(f); return () => scene.onAfterRenderObservable.remove(o); },
+            pos: () => { const n = mp.peers.get(bLobby.id)?.node; return n ? [n.position.x, n.position.y, n.position.z] : null; },
+            walk: async () => { for (const [x, z] of waypoints) await steer(() => ({ x, z }), 0.8, 8000); },
+          });
+          progress(1);
+        } finally { frame.remove(); }
+      },
     }],
     product: 'hawkes-net-babylon',
     where: (endpoint || globalThis.HAWKES_NET_ENDPOINT || 'https://net.hawkesgen.ai').replace(/^https?:\/\//, ''),
-    seconds: { smoke: 100 },   // feel + presence + 20 s scene-audit orbit
+    seconds: { smoke: 100, 'two-players': 130 },   // feel + presence + 20 s scene-audit orbit
     main: () => mp.lobby,
     openBot: async () => openPlaytestPeer('Playtest bot', `pt-${Math.random()}`),
     drive: async (step) => { key('d', true); await step(1200); key('d', false); key('w', true); await step(900); key('w', false); await step(100); },
@@ -1172,6 +1248,33 @@
           check: c.check, main: c.main, collector: bot, until: c.until, wait: c.wait, metric: c.metric,
           openLate: () => openPlaytestPeer('Late joiner', `late-${Math.random()}`),
           event: c.event || (() => {}), scene: c.scene,
+        });
+        // Player B (a lobby here) is dropped for 5 s and must return the same; then walks on a 250 ms / 5% loss network.
+        const orbApi = window.hawkesBabylonOrbs, hue = 200;
+        const at = [-6, 0, 0];
+        bot.pose(at, 0, { h: hue });
+        const seen = (id) => { const m = mp.peers.get(id); return m ? { name: m.name, hue: m.extra?.h, away: Boolean(m.away) } : null; };
+        const bName = bot.name ?? mp.peers.get(bot.id)?.name;
+        const posesTo = async (x, z, ms) => {
+          const n = Math.max(2, Math.round(ms / 50)), x0 = at[0], z0 = at[2];
+          for (let i = 1; i <= n; i++) { at[0] = x0 + (x - x0) * i / n; at[2] = z0 + (z - z0) * i / n; bot.pose(at, Math.atan2(x - x0, z - z0), { h: hue }); await c.wait(50); }
+        };
+        await recoverChecks({
+          check: c.check, until: c.until, wait: c.wait, metric: c.metric, event: c.event, scene: c.scene, main: c.main, b: bot, orbs: orbApi,
+          collect: async () => {
+            const t = orbApi.snapshot(c.main).orbs[0];
+            if (!t) throw new Error('no orb to collect');
+            const before = orbApi.snapshot(c.main).scores[bot.id] || 0;
+            await posesTo(t.x - 2.5, t.z, 400);
+            for (let i = 0; i < 40 && (orbApi.snapshot(c.main).scores[bot.id] || 0) <= before; i++) { await posesTo(t.x - 2.5 + 2.5 * (i + 1) / 40, t.z, 50); orbApi.touchAt(bot, at[0], at[2]); }
+          },
+          dropB: (ms) => dropRoom(bot, ms), seen, bIdent: () => ({ name: bName, hue }),
+        });
+        await jumpChecks({
+          check: c.check, metric: c.metric, event: c.event, scene: c.scene, wait: c.wait, b: bot,
+          onFrame: (f) => { const o = scene.onAfterRenderObservable.add(f); return () => scene.onAfterRenderObservable.remove(o); },
+          pos: () => { const n = mp.peers.get(bot.id)?.node; return n ? [n.position.x, n.position.y, n.position.z] : null; },
+          walk: async () => { await posesTo(6, 0, 3000); await posesTo(-6, 0, 3000); },
         });
       } finally { try { await bot?.leave(); } catch { /* gone */ } }
     },

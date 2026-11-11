@@ -24,10 +24,14 @@ over `@hawkesgen/net` (the hawkesnet repo's `sdk/js`). One file, `hawkes-net-bab
   drags the joystick and asserts the capsule moves that way, and checks no button overlaps the stick, a one-line info
   panel, no sideways scroll and text ≥ 12 px; `feel` checks eased movement, the eased follow camera and the touch
   joystick (setup option `touch`, default true); smoke runs the feel checks too. Scenario list: `smoke`, `two-players`,
-  `phone`, `feel` (plus `quickstart`, `demo-boot`). `two-players` (and smoke’s `extra`) also run the host-authoritative
+  `phone`, `feel`, `drop-recover` (plus `quickstart`, `demo-boot`). `two-players` (and smoke’s `extra`) also run the host-authoritative
   orb collect checks via `afterTwoPlayers` / `example/orbs-playtest.mjs`. Smoke’s `extra` also runs the scene audit
   (`example/scene-audit.mjs`): every static prop’s bounds bottom within 2 cm of a downward ray (floating / sunk),
   coplanar overlapping faces (zfight), inside-out normals, camera `minZ ≥ 0.1`, a 20 s camera orbit with
   `cameraInside` frames, and a lift-the-crate probe that must fail naming `crate`. Metrics: `floating`, `sunk`,
   `zfight`, `insideOut`, `cameraInside` (fail on any non-zero). The same net-playtest file lives in hawkesnet-js and
   hawkesnet (`public/demo-playtest.mjs`): change all three.
+- `drop-recover` (and `two-players`, via `example/net-drop-playtest.mjs`): player B scores, is dropped with `hawkesPlaytest.dropFor(5000)`,
+  must be back within 2000 ms with the same name, colour and score (`recoverMs`), then walks while its pose stream is slowed to 250 ms /
+  5% loss (the page cannot reach CDP, so the slow-down is applied to B's pose sends); `maxRemoteJumpM` over 0.5 fails. `?as=B` gives a
+  second page in the same tab its own player (sessionStorage is shared by same-origin frames). Every state emits `event('shot:…')`.
