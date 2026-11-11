@@ -29,3 +29,8 @@ The **glowing ring** on the floor at the centre — visible from the edge pillar
 2. Another visitor’s capsule pops in with a chime; you see each other move.
 3. One of you walks into an orb — a ping, a flash on the stone, both scoreboards tick, the orb leaps to a new spot.
 4. A wave passes both ways; when they leave, their avatar fades out.
+
+## Orb Hunt rounds
+
+The host runs 60-second rounds in shared state. A timer sits top centre (it pulses red in the last 10 s). At 0 every screen shows the same result card — the winner, a sorted scoreboard and confetti — for 3 s, then scores reset and the next round starts. A visitor alone for 3 s gets two bots (Bot Ada, Bot Kit): they walk to the nearest orb, steer round the crate and pillars, and leave when a real player joins. `?round=15` makes rounds short.
+

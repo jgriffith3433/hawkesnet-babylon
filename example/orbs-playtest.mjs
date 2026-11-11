@@ -62,6 +62,10 @@ export async function orbChecks({ check, main, collector, until, wait, metric, o
     return `${a.orbs.length} orbs match after ${Math.round(ms)} ms`;
   });
 
+  // A round boundary freezes scoring for 3 s and resets scores: start the collect check well inside a round.
+  const rounds = typeof window !== 'undefined' ? window.hawkesBabylonRounds : null;
+  if (rounds) await until(() => { const r = rounds.snapshot(main); return r.n === 0 || (r.phase === 'play' && r.left > 8000); }, 75000, 'a fresh round to start');
+
   await check("Collecting an orb raises that player's score on both screens within half a second, and the orb respawns", async () => {
     const before = api.snapshot(main);
     const target = before.orbs[0] && { ...before.orbs[0] };
