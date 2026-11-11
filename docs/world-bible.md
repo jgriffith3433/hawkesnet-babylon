@@ -38,3 +38,7 @@ The host runs 60-second rounds in shared state. A timer sits top centre (it puls
 ## When the line drops
 
 A visitor keeps their name and colour for the tab (sessionStorage), so coming back on a fresh ticket is the same player. When your connection drops, your character stands still and a "Reconnecting…" banner hangs top centre; when the room has you again it says "Back in the room" for 2 s. A player who drops from your view turns about 40% see-through with "· away" in amber on their nameplate; if they return they go solid, and if they are still gone after the server's 15 s grace they leave with the usual fade.
+
+## Dropped and back, on a bad line
+
+When player B's line drops for 5 s, A sees B turn see-through with "· away"; when the line returns B is a normal player again within 2 s, still the same name, colour and score on both screens. On a 250 ms, 5%-loss line B's avatar glides rather than jumps: the playtest reports the largest jump in one frame and fails over 0.5 m. The playtest's player B is a 390×844 touch page walking onto an orb with the on-screen stick.
