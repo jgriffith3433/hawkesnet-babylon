@@ -29,6 +29,7 @@ export function createOrbs(o) {
   const B = o.BABYLON, scene = o.scene;
   const onCollect = o.onCollect || (() => {});
   const onHud = o.onHud || (() => {});
+  const scoreHtml = o.scoreHtml || null; // (scores, net) => html: the page's own (sorted, round-aware) scoreboard
   const games = new WeakMap(); // Room -> local mirror
   const meshes = new Map();    // id -> mesh bits (page visual only)
   let mainRoom = null;
@@ -140,6 +141,11 @@ export function createOrbs(o) {
 
   function paintHud(game) {
     if (!game || !mainNet) return;
+    if (scoreHtml) {
+      const h = scoreHtml(game.scores, mainNet);
+      if (h !== lastHud) { lastHud = h; onHud(h); }
+      return;
+    }
     const mine = mainNet.id;
     const rows = [`You ${game.scores[mine] || 0}`];
     const peers = mainNet.peers || mainRoom?.peers;
@@ -166,7 +172,7 @@ export function createOrbs(o) {
     if (!room) return null;
     if (games.has(room)) return games.get(room);
 
-    const game = { orbs: [], scores: {}, seq: 0, applied: new Set(), sentTouch: '' };
+    const game = { orbs: [], scores: {}, seq: 0, applied: new Set(), sentTouch: '', frozen: false };
     const visual = room === mainRoom || (!mainRoom && net);
 
     room.sync.state('orbs', {
@@ -207,7 +213,7 @@ export function createOrbs(o) {
     });
 
     game.touch = room.sync.action('orb-touch', (data, { authoritative }) => {
-      if (!authoritative || !data) return;
+      if (!authoritative || !data || game.frozen) return; // frozen: between rounds nobody scores
       const orb = game.orbs.find((x) => x.id === data.orb);
       if (!orb || (data.gen != null && data.gen !== orb.gen)) return;
       const p = randSpot(game.orbs, orb.id);
@@ -236,6 +242,31 @@ export function createOrbs(o) {
       }
     }
     return false;
+  }
+
+  // Host-side hooks for the round game (rounds.mjs): freeze scoring, reset or trim scores, award a bot.
+  function hostGame(net) {
+    const room = asRoom(net);
+    const game = room && (games.get(room) || wire(net));
+    return game && room.isHost ? game : null;
+  }
+  function setFrozen(net, on) { const g = hostGame(net); if (g) g.frozen = Boolean(on); }
+  function resetScores(net) { const g = hostGame(net); if (g) g.scores = {}; }
+  function dropScores(net, pred) {
+    const g = hostGame(net);
+    if (!g) return;
+    const next = {};
+    for (const [k, v] of Object.entries(g.scores)) if (!pred(k)) next[k] = v;
+    g.scores = next;
+  }
+  /** The host collects an orb for a bot (same award path as a touch, no peer needed). */
+  function collectFor(net, by, orbId) {
+    const g = hostGame(net);
+    const orb = g && !g.frozen && g.orbs.find((x) => x.id === orbId);
+    if (!orb) return false;
+    const p = randSpot(g.orbs, orb.id);
+    g.award({ orb: orb.id, by, nx: p.x, ny: p.y, nz: p.z, n: g.seq + 1 });
+    return true;
   }
 
   function snapshot(net) {
@@ -277,6 +308,8 @@ export function createOrbs(o) {
 
   return {
     ORB_N, ORB_R, TOUCH_R, ORB_LIFT,
+    obstacles,
+    setFrozen, resetScores, dropScores, collectFor,
     wire,
     touchAt,
     snapshot,

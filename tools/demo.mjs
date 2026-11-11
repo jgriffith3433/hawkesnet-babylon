@@ -18,6 +18,8 @@ fs.copyFileSync(path.join(root, 'example', 'audio.mjs'), path.join(out, 'audio.m
 fs.copyFileSync(path.join(root, 'example', 'orbs.mjs'), path.join(out, 'orbs.mjs'));
 fs.cpSync(path.join(root, 'example', 'assets'), path.join(out, 'assets'), { recursive: true });
 fs.copyFileSync(path.join(root, 'example', 'orbs-playtest.mjs'), path.join(out, 'orbs-playtest.mjs'));
+fs.copyFileSync(path.join(root, 'example', 'rounds.mjs'), path.join(out, 'rounds.mjs'));
+fs.copyFileSync(path.join(root, 'example', 'rounds-playtest.mjs'), path.join(out, 'rounds-playtest.mjs'));
 let html = fs.readFileSync(path.join(root, 'example', 'index.html'), 'utf8');
 const map = /"@hawkesgen\/net": "[^"]+"/;
 if (!map.test(html) || !html.includes("import('../hawkes-net-babylon.mjs')")) throw new Error('example/index.html changed: update tools/demo.mjs');
