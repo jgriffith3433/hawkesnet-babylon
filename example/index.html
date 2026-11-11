@@ -371,8 +371,10 @@
   const name = ident.name;
   plate(name, me);
   let frozen = false;   // while the connection is down your character holds still
+  // player: where the local wave arm attaches (and the fallback pose); getPose still wins for the wire (hue in extra).
   const mp = multiplayer(scene, {
     babylon: B, project: q.get('project') || 'netdemo', endpoint, name, sub: ident.sub, avatar: charAvatar, area: 'babylon-demo',
+    player: me,
     getPose: () => ({ position: [me.position.x, me.position.y, me.position.z], yaw: me.rotation.y, extra: { h: ident.hue } }),
     onAway: (node, away, peer) => drawTag(node, peer.name, away),
   });
