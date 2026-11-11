@@ -46,7 +46,7 @@ export function defaultAvatar(peer, B, scene) {
   if (B.DynamicTexture && peer.name && canvas) {
     const tag = B.MeshBuilder.CreatePlane(`hn-tag-${peer.id}`, { width: 1.6, height: 0.4 }, scene);
     tag.position.y = 2.2;
-    tag.billboardMode = B.Mesh.BILLBOARDMODE_ALL;
+    tag.metadata = { hnBillboard: true };   // faces the camera by copying its rotation (see billboards), never LookAt
     tag.parent = root;
     const tex = new B.DynamicTexture(`hn-tagtex-${peer.id}`, { width: 512, height: 128 }, scene, false);
     tex.hasAlpha = true;
@@ -56,6 +56,41 @@ export function defaultAvatar(peer, B, scene) {
     tag.material = tm;
   }
   return root;
+}
+
+
+/**
+ * Nameplates as real billboards: each frame, every mesh with `metadata.hnBillboard` copies the camera's rotation (so its text
+ * reads the right way round from every side: no LookAt on text, no negative scale) and keeps a steady size on screen
+ * (opt.textPx: the height of a line of text in CSS pixels, default 22; the plate grows with distance, never below 0.6 x).
+ * multiplayer() installs this once per scene; call it yourself for your own plates. Returns off().
+ */
+export function billboards(scene, B, opt = {}) {
+  const em = opt.textPx ?? 22, minK = opt.minScale ?? 0.6, maxK = opt.maxScale ?? 4;
+  const q = new B.Quaternion(), anchor = new B.Vector3(), sc = new B.Vector3();
+  const obs = scene.onBeforeCameraRenderObservable.add((cam) => {
+    if (cam !== scene.activeCamera) return;
+    const eye = B.Matrix.Invert(cam.getViewMatrix());   // the camera's world matrix, fresh for this frame
+    B.Quaternion.FromRotationMatrixToRef(eye.getRotationMatrix(), q);
+    const eyePos = eye.getTranslation();
+    const eng = scene.getEngine();
+    const rect = eng.getRenderingCanvasClientRect?.();
+    const cssH = rect?.height || eng.getRenderHeight?.() || 0;
+    const tanHalf = Math.tan((cam.fov || 0.8) / 2);
+    for (const m of scene.meshes) {
+      if (!m.metadata?.hnBillboard || !m.parent) continue;
+      const pw = m.parent.computeWorldMatrix(true);
+      const hang = (m.metadata.hnAnchor ??= m.position.clone());   // where the plate hangs on its parent
+      B.Vector3.TransformCoordinatesToRef(hang, pw, anchor);
+      let k = 1;
+      const d = B.Vector3.Distance(anchor, eyePos);
+      if (cssH > 0 && d > 0.01) k = Math.min(maxK, Math.max(minK, em * 2 / (cssH / (2 * d * tanHalf) * 0.4)));   // a plate is 0.4 m tall, its text half of it
+      sc.set(k, k, k);
+      const local = B.Matrix.Compose(sc, q, anchor).multiply(B.Matrix.Invert(pw));   // world = local * parent
+      local.decompose(m.scaling, (m.rotationQuaternion ??= new B.Quaternion()), m.position);
+    }
+  });
+  return () => scene.onBeforeCameraRenderObservable.remove(obs);
 }
 
 /**
@@ -94,13 +129,14 @@ export function playEmote(node, kind, B, scene) {
  *   player (the mesh or node whose place and heading are yours; or getPose: () => ({ position: [x, y, z], yaw, extra })),
  *   avatar ((peer, BABYLON, scene) => a node: how others look; default a capsule with their name),
  *   onAway ((node, away, peer) => void: the game shows "away" its own way, e.g. on the nameplate; the module also fades the avatar to 40%),
+ *   emoteArm (true: a wave shows as a raised arm on the avatar; false when your avatar plays its own wave clip, see onPresence),
  *   emoteKeys ({ e: 'wave' }: a key press that emotes, seen by everyone; false for none; mp.emote('wave') does it by code),
  *   ... any other lobby / join option }
  */
 export function multiplayer(scene, o = {}) {
   const B = o.babylon ?? globalThis.BABYLON;
   if (!B) throw new Error('hawkes-net-babylon: pass { babylon: BABYLON } (import * as BABYLON from "@babylonjs/core")');
-  const { babylon, area = 'lobby', player, getPose, avatar = defaultAvatar, emoteKeys = { e: 'wave' }, onAway, ...rest } = o;
+  const { babylon, area = 'lobby', player, getPose, avatar = defaultAvatar, emoteKeys = { e: 'wave' }, emoteArm = true, onAway, ...rest } = o;
   // (An option given as undefined, `endpoint: q.get('net') || undefined`, must not override the SDK's default.)
   const join = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
   const lobby = makeLobby({ transport: 'relay', ...join });
@@ -163,7 +199,8 @@ export function multiplayer(scene, o = {}) {
     rings.add(ring(pos ? { x: pos[0], z: pos[2] } : p.node.position));
     note('spawn', p.id, p.name);
   };
-  const emote = (node, kind) => { if (node) emotes.add(playEmote(node, kind, B, scene)); };
+  const offBillboards = billboards(scene, B);
+  const emote = (node, kind) => { if (node && emoteArm) emotes.add(playEmote(node, kind, B, scene)); };
 
   const offs = [
     lobby.onPose((id, s, at) => {
@@ -311,6 +348,7 @@ export function multiplayer(scene, o = {}) {
     /** Leave and remove every avatar and hook. */
     dispose() {
       scene.onBeforeRenderObservable.remove(tick);
+      offBillboards();
       for (const off of offs) off();
       thingOff?.();
       if (emoteKeys && typeof removeEventListener === 'function') removeEventListener('keydown', onKey);
@@ -326,4 +364,4 @@ export function multiplayer(scene, o = {}) {
   };
 }
 
-export default { multiplayer, defaultAvatar, playEmote, background, inBackground, VERSION };
+export default { multiplayer, defaultAvatar, playEmote, billboards, background, inBackground, VERSION };

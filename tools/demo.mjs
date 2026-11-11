@@ -21,6 +21,7 @@ fs.copyFileSync(path.join(root, 'example', 'orbs-playtest.mjs'), path.join(out, 
 fs.copyFileSync(path.join(root, 'example', 'rounds.mjs'), path.join(out, 'rounds.mjs'));
 fs.copyFileSync(path.join(root, 'example', 'rounds-playtest.mjs'), path.join(out, 'rounds-playtest.mjs'));
 fs.copyFileSync(path.join(root, 'example', 'scene-audit.mjs'), path.join(out, 'scene-audit.mjs'));
+for (const f of ['locomotion.mjs', 'avatar-playtest.mjs', 'net-drop-playtest.mjs']) fs.copyFileSync(path.join(root, 'example', f), path.join(out, f));
 let html = fs.readFileSync(path.join(root, 'example', 'index.html'), 'utf8');
 const map = /"@hawkesgen\/net": "[^"]+"/;
 if (!map.test(html) || !html.includes("import('../hawkes-net-babylon.mjs')")) throw new Error('example/index.html changed: update tools/demo.mjs');

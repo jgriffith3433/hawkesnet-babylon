@@ -106,9 +106,10 @@ object holding the same names.
 | `multiplayer(scene, options)` | Starts multiplayer on a Babylon scene and returns a `Multiplayer` (below). |
 | `defaultAvatar(peer, BABYLON, scene)` | The default avatar: a capsule in the player's color with their name over it. Call it from your own `avatar` to extend it. |
 | `playEmote(node, 'wave', BABYLON, scene)` | Puts an emote (a swinging raised arm) on any node. Returns `{ kind, done, update(now), dispose() }`; `multiplayer()` drives its own, otherwise call `update(performance.now())` each frame. |
+| `billboards(scene, BABYLON, { textPx })` | Nameplates that read the right way round from every side: each frame, meshes with `metadata.hnBillboard` copy the camera's rotation (no `LookAt`, no negative scale) and keep about `textPx` (22) CSS pixels of text on screen. `multiplayer()` and `defaultAvatar` use it; returns `off()`. |
 | `background`, `inBackground` | Re-exported from `@hawkesgen/net`. `background(fn)` keeps `fn` running while the tab is hidden; `inBackground()` says whether it is. |
 | `VERSION` | This package's version string. |
-| `default` | `{ multiplayer, defaultAvatar, playEmote, background, inBackground, VERSION }`. |
+| `default` | `{ multiplayer, defaultAvatar, playEmote, billboards, background, inBackground, VERSION }`. |
 
 **`multiplayer(scene, options)`** takes the SDK's lobby options (`endpoint`, ...) plus:
 
@@ -122,6 +123,7 @@ object holding the same names.
 | `player` | The mesh or node whose place and heading are sent. Or give `getPose: () => ({ position, yaw?, extra? })`. |
 | `avatar` | `(peer, BABYLON, scene) => node`: how others look (`peer.extra` has the values that player sends in their pose extra, e.g. a colour). |
 | `onAway` | `(node, away, peer) => void`: show "away" your own way (a nameplate); the module fades an away avatar to 40% itself. A dropped player is away at once and removed with the leave fade after the server's 15 s grace. |
+| `emoteArm` | `true` (default): a wave is a raised arm on the avatar. `false`: your own avatar plays its wave clip when `onPresence` reports an `emote` (the demo does this with a rigged robot). |
 | `emoteKeys` | Key presses that emote (default `{ e: 'wave' }`, `false` for none). |
 
 An option given as `undefined` is ignored (the SDK's default stays).
